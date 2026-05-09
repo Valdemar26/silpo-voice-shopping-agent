@@ -1,0 +1,109 @@
+<div class="app">
+  <header>
+    <h1>📊 Financial AI Chat</h1>
+    <nav>
+      <button
+        class="nav-btn"
+        [class.active]="currentView() === 'chat'"
+        (click)="currentView.set('chat')"
+      >💬 Chat</button>
+      <button
+        class="nav-btn"
+        [class.active]="currentView() === 'dashboard'"
+        (click)="currentView.set('dashboard')"
+      >
+        📌 Dashboard
+        @if (pinnedCount() > 0) {
+          <span class="badge">{{ pinnedCount() }}</span>
+        }
+      </button>
+    </nav>
+    @if (hasFiles() && currentView() === 'chat') {
+      <button class="clear-btn" (click)="clearAll()">Clear all</button>
+    }
+  </header>
+
+  @if (currentView() === 'dashboard') {
+    <app-dashboard />
+  } @else {
+    <main>
+      <div class="upload-zone" (click)="fileInput.click()">
+        @if (!hasFiles()) {
+          <span>⬆️ Завантажити Excel файли (можна кілька одночасно)</span>
+        } @else {
+          <span>➕ Додати ще файл</span>
+        }
+        <input #fileInput type="file" accept=".xlsx" multiple (change)="onFileUpload($event)" />
+      </div>
+
+      @if (hasFiles()) {
+        <div class="files-list">
+          @for (file of files(); track file.name; let i = $index) {
+            <div class="file-chip">
+              <span class="file-name">📄 {{ file.name }}</span>
+              <span class="file-meta">{{ file.sheets.length }} sheet(s)</span>
+              <button class="remove-btn" (click)="removeFile(i)" title="Видалити файл">✕</button>
+            </div>
+          }
+        </div>
+      }
+
+      <div class="chat-box">
+        <div class="messages">
+          @if (messages().length === 0) {
+            <div class="empty-state">
+              @if (hasFiles()) {
+                Задай питання по своїх даних
+              } @else {
+                Завантаж Excel файли щоб почати
+              }
+            </div>
+          }
+          @for (msg of messages(); track $index) {
+            <div
+              class="message"
+              [class.user]="msg.role === 'user'"
+              [class.assistant]="msg.role === 'assistant'"
+              [class.loading]="msg.loading"
+            >{{ msg.text }}</div>
+
+            @if (msg.cacheStats && msg.cacheStats.cacheRead > 0) {
+              <div class="cache-badge" title="Tokens loaded from prompt cache">
+                💾 Cached: {{ msg.cacheStats.cacheRead }} tokens
+              </div>
+            }
+
+            @if (msg.chart) {
+              <app-chart [data]="msg.chart" />
+              <button class="pin-btn" (click)="togglePin(msg)">
+                @if (msg.pinnedId) {
+                  ✓ Pinned to dashboard
+                } @else {
+                  📌 Pin to dashboard
+                }
+              </button>
+            }
+            @if (msg.table) {
+              <app-table [data]="msg.table" />
+            }
+          }
+        </div>
+
+        <div class="input-row">
+          <textarea
+            [value]="userInput()"
+            (input)="userInput.set($any($event.target).value)"
+            (keydown)="onKeyDown($event)"
+            placeholder="Задай питання по даних... (Enter — відправити)"
+            [disabled]="!hasFiles() || isLoading()"
+            rows="2"
+          ></textarea>
+          <button
+            (click)="sendMessage()"
+            [disabled]="!hasFiles() || isLoading() || !userInput().trim()"
+          >{{ isLoading() ? '...' : '→' }}</button>
+        </div>
+      </div>
+    </main>
+  }
+</div>
