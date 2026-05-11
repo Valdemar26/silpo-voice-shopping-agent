@@ -1,7 +1,7 @@
 import { Component, signal, computed, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ExcelParserService, UploadedFile } from './services/excel-parser';
-import { ClaudeService, ChatMessage, ClaudeResponse } from './services/claude';
+import { ClaudeService, ChatMessage, ClaudeResponse, CacheStats } from './services/claude';
 import { ChartComponent, ChartData } from './components/chart/chart';
 import { TableComponent } from './components/table/table';
 import { TableData } from './services/claude';
@@ -14,9 +14,12 @@ interface DisplayMessage {
   loading?: boolean;
   chart?: ChartData;
   table?: TableData;
-  cacheStats?: { cacheRead: number; cacheWritten: number };
+  cacheStats?: CacheStats;
   query?: string;
   pinnedId?: string;
+  error?: boolean;
+  errorMessage?: string;
+  originalQuery?: string;
 }
 
 @Component({
@@ -43,8 +46,10 @@ export class AppComponent {
     'Budget distribution by Cost Code',
     'Which leases expire in 2026?'
   ];
+  readonly sessionCost = signal(0);
 
   private chatHistory: ChatMessage[] = [];
+  private abortController?: AbortController;
 
   constructor(
     private excelParser: ExcelParserService,
@@ -120,6 +125,7 @@ export class AppComponent {
     this.files.set([]);
     this.messages.set([]);
     this.chatHistory = [];
+    this.sessionCost.set(0);
   }
 
   private refreshContext(): void {
@@ -138,43 +144,52 @@ export class AppComponent {
     this.userInput.set('');
     const loadingMsg: DisplayMessage = { role: 'assistant', text: '', loading: true };
     this.messages.update(msgs => [...msgs, { role: 'user', text }, loadingMsg]);
-    this.chatHistory = [...this.chatHistory, { role: 'user', content: text }];
+
+    const newHistory: ChatMessage[] = [...this.chatHistory, { role: 'user', content: text }];
     this.isLoading.set(true);
+    this.abortController = new AbortController();
 
     const pdfs = this.files().filter(f => f.type === 'pdf');
 
-    await this.claude.chatStream(this.chatHistory, pdfs, {
-      onText: () => { /* поки не використовуємо */ },
+    await this.claude.chatStream(newHistory, pdfs, {
+      onText: () => {},
 
       onDone: (result: ClaudeResponse) => {
+        this.chatHistory = [...newHistory, { role: 'assistant', content: result.answer }];
+
         this.messages.update(msgs =>
-          msgs.map(m => m === loadingMsg
-            ? {
-                role: 'assistant' as const,
-                text: result.answer,
-                chart: result.chart,
-                table: result.table,
-                cacheStats: result.cacheStats,
-                query: text,
-                loading: false
-              }
-            : m
-          )
+          msgs.map(m => m === loadingMsg ? {
+            role: 'assistant' as const,
+            text: result.answer,
+            chart: result.chart,
+            table: result.table,
+            cacheStats: result.cacheStats,
+            query: text,
+            loading: false
+          } : m)
         );
-        this.chatHistory = [...this.chatHistory, { role: 'assistant', content: result.answer }];
+
+        if (result.cacheStats) {
+          this.addToSessionCost(result.cacheStats);
+        }
+
         this.isLoading.set(false);
       },
 
       onError: (error: string) => {
         this.messages.update(msgs =>
-          msgs.map(m => m === loadingMsg
-            ? { role: 'assistant' as const, text: `❌ ${error}`, loading: false }
-            : m
-          )
+          msgs.map(m => m === loadingMsg ? {
+            role: 'assistant' as const,
+            text: '',
+            error: true,
+            errorMessage: error,
+            originalQuery: text,
+            loading: false
+          } : m)
         );
         this.isLoading.set(false);
       }
-    });
+    }, this.abortController.signal);
   }
 
   onKeyDown(event: KeyboardEvent): void {
@@ -186,6 +201,33 @@ export class AppComponent {
 
   selectSuggestion(question: string): void {
     this.userInput.set(question);
+    this.sendMessage();
+  }
+
+  private addToSessionCost(usage: CacheStats): void {
+    // Sonnet 4-6 pricing per million tokens
+    const cost =
+      (usage.inputTokens * 3 +
+      usage.cacheWritten * 3.75 +
+      usage.cacheRead * 0.30 +
+      usage.outputTokens * 15) / 1_000_000;
+    this.sessionCost.update(c => c + cost);
+  }
+
+  stopGeneration(): void {
+    this.abortController?.abort();
+  }
+
+  retryMessage(msg: DisplayMessage): void {
+    if (!msg.originalQuery) return;
+
+    this.messages.update(msgs => {
+      const errorIdx = msgs.indexOf(msg);
+      if (errorIdx === -1) return msgs;
+      return msgs.filter((_, i) => i !== errorIdx && i !== errorIdx - 1);
+    });
+
+    this.userInput.set(msg.originalQuery);
     this.sendMessage();
   }
 }

@@ -18,6 +18,13 @@
         }
       </button>
     </nav>
+
+    @if (sessionCost() > 0) {
+      <span class="session-cost" title="Approximate API cost for this session">
+        💰 ${{ sessionCost().toFixed(4) }}
+      </span>
+    }
+
     @if (hasFiles() && currentView() === 'chat') {
       <button class="clear-btn" (click)="clearAll()">Clear all</button>
     }
@@ -77,31 +84,50 @@
             </div>
           }
           @for (msg of messages(); track $index) {
-            <div
-              class="message"
-              [class.user]="msg.role === 'user'"
-              [class.assistant]="msg.role === 'assistant'"
-              [class.loading]="msg.loading"
-            >{{ msg.text }}</div>
-
-            @if (msg.cacheStats && msg.cacheStats.cacheRead > 0) {
-              <div class="cache-badge" title="Tokens loaded from prompt cache">
-                💾 Cached: {{ msg.cacheStats.cacheRead }} tokens
+            @if (msg.loading) {
+              <div class="skeleton">
+                <div class="skeleton-line"></div>
+                <div class="skeleton-line short"></div>
+                <div class="skeleton-line medium"></div>
               </div>
-            }
+            } @else if (msg.error) {
+              <div class="error-message">
+                <div class="error-icon">⚠️</div>
+                <div class="error-content">
+                  <div class="error-text">{{ msg.errorMessage }}</div>
+                  @if (msg.originalQuery) {
+                    <button class="retry-btn" (click)="retryMessage(msg)">
+                      ↻ Try again
+                    </button>
+                  }
+                </div>
+              </div>
+            } @else {
+              <div
+                class="message"
+                [class.user]="msg.role === 'user'"
+                [class.assistant]="msg.role === 'assistant'"
+              >{{ msg.text }}</div>
 
-            @if (msg.chart) {
-              <app-chart [data]="msg.chart" />
-              <button class="pin-btn" (click)="togglePin(msg)">
-                @if (msg.pinnedId) {
-                  ✓ Pinned to dashboard
-                } @else {
-                  📌 Pin to dashboard
-                }
-              </button>
-            }
-            @if (msg.table) {
-              <app-table [data]="msg.table" />
+              @if (msg.cacheStats && msg.cacheStats.cacheRead > 0) {
+                <div class="cache-badge" title="Tokens loaded from prompt cache">
+                  💾 Cached: {{ msg.cacheStats.cacheRead }} tokens
+                </div>
+              }
+
+              @if (msg.chart) {
+                <app-chart [data]="msg.chart" />
+                <button class="pin-btn" (click)="togglePin(msg)">
+                  @if (msg.pinnedId) {
+                    ✓ Pinned to dashboard
+                  } @else {
+                    📌 Pin to dashboard
+                  }
+                </button>
+              }
+              @if (msg.table) {
+                <app-table [data]="msg.table" />
+              }
             }
           }
         </div>
@@ -115,12 +141,31 @@
             [disabled]="!hasFiles() || isLoading()"
             rows="2"
           ></textarea>
-          <button
-            (click)="sendMessage()"
-            [disabled]="!hasFiles() || isLoading() || !userInput().trim()"
-          >{{ isLoading() ? '...' : '→' }}</button>
+          @if (isLoading()) {
+            <button class="stop-btn" (click)="stopGeneration()" title="Stop generation">⏹</button>
+          } @else {
+            <button
+              (click)="sendMessage()"
+              [disabled]="!hasFiles() || !userInput().trim()"
+            >→</button>
+          }
         </div>
       </div>
     </main>
   }
+
+  <footer class="app-footer">
+    <span>
+      Built by
+      <a href="https://www.linkedin.com/in/volodymyr-zaplatynskii/" target="_blank" rel="noopener">
+        Volodymyr Zaplatynskii
+      </a>
+    </span>
+    <span class="separator">·</span>
+    <a href="https://github.com/Valdemar26/Financial-AI-Chat-MVP" target="_blank" rel="noopener">
+      GitHub
+    </a>
+    <span class="separator">·</span>
+    <span class="tagline">Angular + Anthropic API</span>
+  </footer>
 </div>

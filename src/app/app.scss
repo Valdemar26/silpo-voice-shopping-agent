@@ -343,3 +343,141 @@ main {
     }
   }
 }
+
+// === Skeleton ===
+.skeleton {
+  align-self: flex-start;
+  background: $surface;
+  border: 1px solid $border;
+  border-radius: 12px;
+  padding: 14px 16px;
+  max-width: 70%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-right: auto;
+
+  .skeleton-line {
+    height: 12px;
+    background: linear-gradient(
+      90deg,
+      #e5e7eb 0%,
+      #f3f4f6 50%,
+      #e5e7eb 100%
+    );
+    background-size: 200% 100%;
+    border-radius: 6px;
+    animation: shimmer 1.5s ease-in-out infinite;
+    width: 280px;
+
+    &.short { width: 140px; }
+    &.medium { width: 200px; }
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+// === Error message ===
+.error-message {
+  align-self: flex-start;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  padding: 12px 16px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  max-width: 80%;
+
+  .error-icon { font-size: 16px; }
+
+  .error-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .error-text {
+    color: #991b1b;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  .retry-btn {
+    align-self: flex-start;
+    background: #fff;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: 500;
+    transition: all 0.2s;
+
+    &:hover {
+      background: #991b1b;
+      color: #fff;
+      border-color: #991b1b;
+    }
+  }
+}
+
+// === Stop button ===
+.stop-btn {
+  background: #ef4444;
+  border: none;
+  color: #fff;
+  padding: 0 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 600;
+  transition: background 0.2s;
+  min-width: 50px;
+
+  &:hover { background: #dc2626; }
+}
+
+// === Session cost badge ===
+.session-cost {
+  font-size: 12px;
+  color: $text-muted;
+  background: $surface-2;
+  border: 1px solid $border;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+// === Footer ===
+.app-footer {
+  padding: 12px 24px;
+  border-top: 1px solid $border;
+  background: $surface;
+  font-size: 12px;
+  color: $text-muted;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+
+  a {
+    color: $accent;
+    text-decoration: none;
+    font-weight: 500;
+
+    &:hover { text-decoration: underline; }
+  }
+
+  .separator { color: #d1d5db; }
+
+  .tagline {
+    color: #9ca3af;
+    font-style: italic;
+  }
+}

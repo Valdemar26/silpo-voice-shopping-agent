@@ -13,14 +13,18 @@ export interface TableData {
   rows: any[][];
 }
 
+export interface CacheStats {
+  cacheRead: number;
+  cacheWritten: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export interface ClaudeResponse {
   answer: string;
   chart?: ChartData;
   table?: TableData;
-  cacheStats?: {
-    cacheRead: number;
-    cacheWritten: number;
-  };
+  cacheStats?: CacheStats;
 }
 
 export interface StreamCallbacks {
@@ -100,7 +104,8 @@ export class ClaudeService {
   async chatStream(
     history: ChatMessage[], 
     pdfs: UploadedFile[],
-    callbacks: StreamCallbacks
+    callbacks: StreamCallbacks,
+    signal?: AbortSignal
   ): Promise<void> {
 
     // Build messages array, prepending PDFs to the LATEST user message
@@ -133,9 +138,7 @@ export class ClaudeService {
     try {
       response = await fetch(this.API_URL, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
           max_tokens: 1024,
@@ -150,23 +153,39 @@ export class ClaudeService {
           tools: TOOLS,
           tool_choice: { type: 'any' },
           messages
-        })
+        }),
+        signal
       });
-    } catch (e) {
-      callbacks.onError(`Network error: ${e}`);
+    } catch (e: any) {
+      if (e?.name === 'AbortError') {
+        callbacks.onError('⏹ Generation stopped');
+        return;
+      }
+      callbacks.onError(`Network error: ${e?.message ?? e}`);
       return;
     }
 
     if (!response.ok) {
-      const err = await response.json();
-      callbacks.onError(err.error?.message ?? `HTTP ${response.status}`);
+      let errorMsg = `HTTP ${response.status}`;
+      try {
+        const body = await response.json();
+        const message = body?.error?.message ?? '';
+        if (message.toLowerCase().includes('credit balance')) {
+          errorMsg = '💳 API credits exhausted. Please add credits at console.anthropic.com';
+        } else if (response.status === 429) {
+          errorMsg = '⏱ Rate limit hit. Please wait a moment and try again.';
+        } else if (message) {
+          errorMsg = message;
+        }
+      } catch {}
+      callbacks.onError(errorMsg);
       return;
     }
 
     let currentToolName = '';
     let accumulatedJson = '';
     let lastStreamedText = '';
-    let cacheStats: { cacheRead: number; cacheWritten: number } | undefined;
+    let cacheStats: CacheStats | undefined;
 
     const reader = response.body!.getReader();
     const decoder = new TextDecoder();
@@ -198,8 +217,18 @@ export class ClaudeService {
             if (usage) {
               cacheStats = {
                 cacheRead: usage.cache_read_input_tokens ?? 0,
-                cacheWritten: usage.cache_creation_input_tokens ?? 0
+                cacheWritten: usage.cache_creation_input_tokens ?? 0,
+                inputTokens: usage.input_tokens ?? 0,
+                outputTokens: 0
               };
+            }
+            continue;
+          }
+
+          if (event.type === 'message_delta') {
+            const outputTokens = event.usage?.output_tokens;
+            if (outputTokens && cacheStats) {
+              cacheStats.outputTokens = outputTokens;
             }
             continue;
           }
@@ -227,8 +256,12 @@ export class ClaudeService {
           }
         }
       }
-    } catch (e) {
-      callbacks.onError(`Stream error: ${e}`);
+    } catch (e: any) {
+      if (e?.name === 'AbortError') {
+        callbacks.onError('⏹ Generation stopped');
+        return;
+      }
+      callbacks.onError(`Stream error: ${e?.message ?? e}`);
     }
   }
 
