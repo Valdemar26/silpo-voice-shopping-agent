@@ -1,0 +1,8 @@
+{
+  "/api/*": {
+    "target": "https://financial-ai-chat-mvp.vercel.app",
+    "secure": true,
+    "changeOrigin": true,
+    "logLevel": "info"
+  }
+}
