@@ -76,8 +76,8 @@ export class AppComponent {
 
     for (const file of Array.from(fileList)) {
       try {
-        const sheets = await this.excelParser.parseFile(file);
-        newFiles.push({ name: file.name, sheets });
+        const uploadedFile = await this.excelParser.parseFile(file);
+        newFiles.push(uploadedFile);
       } catch (e) {
         this.messages.update(msgs => [...msgs, {
           role: 'assistant',
@@ -91,9 +91,13 @@ export class AppComponent {
     this.files.update(current => [...current, ...newFiles]);
     this.refreshContext();
 
-    const summary = newFiles.map(f =>
-      `${f.name} (${f.sheets.length} sheet(s), ${f.sheets.reduce((sum, s) => sum + s.rows.length, 0)} rows)`
-    ).join(', ');
+    const summary = newFiles.map(f => {
+      if (f.type === 'pdf') {
+        return `${f.name} (PDF)`;
+      }
+      const rowCount = f.sheets!.reduce((sum, s) => sum + s.rows.length, 0);
+      return `${f.name} (${f.sheets!.length} sheet(s), ${rowCount} rows)`;
+    }).join(', ');
 
     this.messages.update(msgs => [...msgs, {
       role: 'assistant',
@@ -137,7 +141,9 @@ export class AppComponent {
     this.chatHistory = [...this.chatHistory, { role: 'user', content: text }];
     this.isLoading.set(true);
 
-    await this.claude.chatStream(this.chatHistory, {
+    const pdfs = this.files().filter(f => f.type === 'pdf');
+
+    await this.claude.chatStream(this.chatHistory, pdfs, {
       onText: () => { /* поки не використовуємо */ },
 
       onDone: (result: ClaudeResponse) => {

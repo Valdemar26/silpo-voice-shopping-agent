@@ -7,15 +7,43 @@ export interface ParsedSheet {
   rows: Record<string, any>[];
 }
 
+export type FileType = 'excel' | 'pdf';
+
 export interface UploadedFile {
   name: string;
-  sheets: ParsedSheet[];
+  type: FileType;
+  sheets?: ParsedSheet[];   // for Excel
+  base64?: string;          // for PDF
 }
 
 @Injectable({ providedIn: 'root' })
 export class ExcelParserService {
 
-  async parseFile(file: File): Promise<ParsedSheet[]> {
+  async parseFile(file: File): Promise<UploadedFile> {
+    const isPdf = file.name.toLowerCase().endsWith('.pdf');
+
+    if (isPdf) {
+      const base64 = await this.fileToBase64(file);
+      return { name: file.name, type: 'pdf', base64 };
+    }
+
+    const sheets = await this.parseExcel(file);
+    return { name: file.name, type: 'excel', sheets };
+  }
+
+  private fileToBase64(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target?.result as string;
+        resolve(dataUrl.split(',')[1]);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  private parseExcel(file: File): Promise<ParsedSheet[]> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
 
@@ -49,8 +77,12 @@ export class ExcelParserService {
   }
 
   filesToContext(files: UploadedFile[]): string {
-    return files.map(file => {
-      const sheetsContext = file.sheets.map(sheet => {
+    const excelFiles = files.filter(f => f.type === 'excel' && f.sheets);
+
+    if (excelFiles.length === 0) return '';
+
+    return excelFiles.map(file => {
+      const sheetsContext = file.sheets!.map(sheet => {
         const preview = sheet.rows.slice(0, 120);
         return `## Sheet: "${sheet.name}"\nColumns: ${sheet.headers.join(', ')}\nTotal rows: ${sheet.rows.length}\n\nData (JSON):\n${JSON.stringify(preview, null, 2)}`;
       }).join('\n\n');

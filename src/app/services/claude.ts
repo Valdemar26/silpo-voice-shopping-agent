@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { parse, Allow } from 'partial-json';
 import { ChartData } from '../components/chart/chart';
+import { UploadedFile } from './excel-parser';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -96,7 +97,37 @@ export class ClaudeService {
   - render_table → when user asks for list, top-N, ranking, or comparison table`;
   }
 
-  async chatStream(history: ChatMessage[], callbacks: StreamCallbacks): Promise<void> {
+  async chatStream(
+    history: ChatMessage[], 
+    pdfs: UploadedFile[],
+    callbacks: StreamCallbacks
+  ): Promise<void> {
+
+    // Build messages array, prepending PDFs to the LATEST user message
+    const messages = history.map((msg, idx) => {
+      const isLatestUserMessage = idx === history.length - 1 && msg.role === 'user';
+
+      if (isLatestUserMessage && pdfs.length > 0) {
+        return {
+          role: 'user',
+          content: [
+            ...pdfs.map(pdf => ({
+              type: 'document',
+              source: {
+                type: 'base64',
+                media_type: 'application/pdf',
+                data: pdf.base64
+              },
+              cache_control: { type: 'ephemeral' }
+            })),
+            { type: 'text', text: msg.content }
+          ]
+        };
+      }
+
+      return msg;
+    });
+
     let response: Response;
 
     try {
@@ -118,7 +149,7 @@ export class ClaudeService {
           ],
           tools: TOOLS,
           tool_choice: { type: 'any' },
-          messages: history
+          messages
         })
       });
     } catch (e) {

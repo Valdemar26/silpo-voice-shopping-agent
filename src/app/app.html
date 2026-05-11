@@ -29,11 +29,11 @@
     <main>
       <div class="upload-zone" (click)="fileInput.click()">
         @if (!hasFiles()) {
-          <span>⬆️ Upload Excel files (multiple supported)</span>
+          <span>⬆️ Upload Excel or PDF files (multiple supported)</span>
         } @else {
           <span>➕ Add another file</span>
         }
-        <input #fileInput type="file" accept=".xlsx" multiple (change)="onFileUpload($event)" />
+        <input #fileInput type="file" accept=".xlsx, .pdf" multiple (change)="onFileUpload($event)" />
       </div>
 
       @if (hasFiles() && messages().length <= 1) {
@@ -51,8 +51,14 @@
         <div class="files-list">
           @for (file of files(); track file.name; let i = $index) {
             <div class="file-chip">
-              <span class="file-name">📄 {{ file.name }}</span>
-              <span class="file-meta">{{ file.sheets.length }} sheet(s)</span>
+              <span class="file-name">
+                @if (file.type === 'pdf') { 📕 } @else { 📄 } {{ file.name }}
+              </span>
+              @if (file.type === 'excel' && file.sheets) {
+                <span class="file-meta">{{ file.sheets.length }} sheet(s)</span>
+              } @else if (file.type === 'pdf') {
+                <span class="file-meta">PDF</span>
+              }
               <button class="remove-btn" (click)="removeFile(i)" title="Remove file">✕</button>
             </div>
           }
