@@ -37,6 +37,13 @@ export class AppComponent {
   readonly hasFiles = computed(() => this.files().length > 0);
   readonly pinnedCount = computed(() => this.dashboard.pinnedCharts().length);
 
+  readonly suggestedQuestions = [
+    'Show offices by region',
+    'Top 5 cities by RSF',
+    'Budget distribution by Cost Code',
+    'Which leases expire in 2026?'
+  ];
+
   private chatHistory: ChatMessage[] = [];
 
   constructor(
@@ -74,7 +81,7 @@ export class AppComponent {
       } catch (e) {
         this.messages.update(msgs => [...msgs, {
           role: 'assistant',
-          text: `❌ Помилка читання "${file.name}": ${e}`
+          text: `❌ Error reading "${file.name}": ${e}`
         }]);
       }
     }
@@ -85,15 +92,14 @@ export class AppComponent {
     this.refreshContext();
 
     const summary = newFiles.map(f =>
-      `${f.name} (${f.sheets.length} аркуш(ів), ${f.sheets.reduce((sum, s) => sum + s.rows.length, 0)} рядків)`
+      `${f.name} (${f.sheets.length} sheet(s), ${f.sheets.reduce((sum, s) => sum + s.rows.length, 0)} rows)`
     ).join(', ');
 
     this.messages.update(msgs => [...msgs, {
       role: 'assistant',
-      text: `✅ Додано: ${summary}\n\nВсього файлів: ${this.files().length}. Можеш задавати питання по будь-якому з них або порівнювати дані між файлами.`
+      text: `✅ Added: ${summary}\n\nTotal files: ${this.files().length}. You can ask questions about any file or compare data across them.`
     }]);
 
-    // Скидаємо input щоб можна було завантажити той самий файл повторно
     input.value = '';
   }
 
@@ -170,5 +176,10 @@ export class AppComponent {
       event.preventDefault();
       this.sendMessage();
     }
+  }
+
+  selectSuggestion(question: string): void {
+    this.userInput.set(question);
+    this.sendMessage();
   }
 }

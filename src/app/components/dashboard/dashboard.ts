@@ -139,7 +139,7 @@ export class DashboardComponent {
   readonly dashboard = inject(DashboardService);
 
   formatDate(ts: number): string {
-    return new Date(ts).toLocaleString('uk-UA', {
+    return new Date(ts).toLocaleString('en-US', {
       day: '2-digit',
       month: 'short',
       hour: '2-digit',
@@ -148,7 +148,7 @@ export class DashboardComponent {
   }
 
   onClearAll(): void {
-    if (confirm('Видалити всі pinned charts?')) {
+    if (confirm('Remove all pinned charts?')) {
       this.dashboard.clear();
     }
   }
