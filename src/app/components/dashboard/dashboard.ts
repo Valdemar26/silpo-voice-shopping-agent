@@ -9,22 +9,22 @@ import { ChartComponent } from '../chart/chart';
   template: `
     <div class="dashboard">
       @if (dashboard.pinnedCharts().length === 0) {
-        <div class="empty">
+        <div class="empty" data-cy="dashboard-empty">
           <div class="empty-icon">📌</div>
           <h2>No pinned charts yet</h2>
           <p>Ask questions in the Chat and pin the charts you find useful — they'll appear here.</p>
         </div>
       } @else {
         <div class="dashboard-header">
-          <span class="count">{{ dashboard.pinnedCharts().length }} chart(s) pinned</span>
-          <button class="clear-btn" (click)="onClearAll()">Clear all</button>
+          <span class="count" data-cy="pinned-count">{{ dashboard.pinnedCharts().length }} chart(s) pinned</span>
+          <button class="clear-btn" data-cy="dashboard-clear-btn" (click)="onClearAll()">Clear all</button>
         </div>
-        <div class="grid">
+        <div class="grid" data-cy="pinned-grid">
           @for (item of dashboard.pinnedCharts(); track item.id) {
-            <div class="card">
+            <div class="card" data-cy="pinned-card">
               <div class="card-header">
                 <div class="query">"{{ item.query }}"</div>
-                <button class="unpin" (click)="dashboard.unpin(item.id)" title="Remove">✕</button>
+                <button class="unpin" data-cy="unpin-btn" (click)="dashboard.unpin(item.id)" title="Remove">✕</button>
               </div>
               <app-chart [data]="item.chart" />
               <div class="card-footer">

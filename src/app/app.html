@@ -4,29 +4,31 @@
     <nav>
       <button
         class="nav-btn"
+        data-cy="nav-chat"
         [class.active]="currentView() === 'chat'"
         (click)="currentView.set('chat')"
       >💬 Chat</button>
       <button
         class="nav-btn"
+        data-cy="nav-dashboard"
         [class.active]="currentView() === 'dashboard'"
         (click)="currentView.set('dashboard')"
       >
         📌 Dashboard
         @if (pinnedCount() > 0) {
-          <span class="badge">{{ pinnedCount() }}</span>
+          <span class="badge" data-cy="dashboard-badge">{{ pinnedCount() }}</span>
         }
       </button>
     </nav>
 
     @if (sessionCost() > 0) {
-      <span class="session-cost" title="Approximate API cost for this session">
+      <span class="session-cost" data-cy="session-cost" title="Approximate API cost for this session">
         💰 ${{ sessionCost().toFixed(4) }}
       </span>
     }
 
     @if (hasFiles() && currentView() === 'chat') {
-      <button class="clear-btn" (click)="clearAll()">Clear all</button>
+      <button class="clear-btn" data-cy="clear-all-btn" (click)="clearAll()">Clear all</button>
     }
   </header>
 
@@ -34,20 +36,20 @@
     <app-dashboard />
   } @else {
     <main>
-      <div class="upload-zone" (click)="fileInput.click()">
+      <div class="upload-zone" data-cy="upload-zone" (click)="fileInput.click()">
         @if (!hasFiles()) {
           <span>⬆️ Upload Excel or PDF files (multiple supported)</span>
         } @else {
           <span>➕ Add another file</span>
         }
-        <input #fileInput type="file" accept=".xlsx, .pdf" multiple (change)="onFileUpload($event)" />
+        <input #fileInput data-cy="file-input" type="file" accept=".xlsx, .pdf" multiple (change)="onFileUpload($event)" />
       </div>
 
       @if (hasFiles() && messages().length <= 1) {
-        <div class="suggestions">
+        <div class="suggestions" data-cy="suggestions">
           <span class="suggestions-label">Try asking:</span>
           @for (q of suggestedQuestions; track q) {
-            <button class="suggestion-chip" (click)="selectSuggestion(q)">
+            <button class="suggestion-chip" data-cy="suggestion-chip" (click)="selectSuggestion(q)">
               {{ q }}
             </button>
           }
@@ -55,9 +57,9 @@
       }
 
       @if (hasFiles()) {
-        <div class="files-list">
+        <div class="files-list" data-cy="files-list">
           @for (file of files(); track file.name; let i = $index) {
-            <div class="file-chip">
+            <div class="file-chip" data-cy="file-chip">
               <span class="file-name">
                 @if (file.type === 'pdf') { 📕 } @else { 📄 } {{ file.name }}
               </span>
@@ -66,16 +68,16 @@
               } @else if (file.type === 'pdf') {
                 <span class="file-meta">PDF</span>
               }
-              <button class="remove-btn" (click)="removeFile(i)" title="Remove file">✕</button>
+              <button class="remove-btn" data-cy="remove-file-btn" (click)="removeFile(i)" title="Remove file">✕</button>
             </div>
           }
         </div>
       }
 
       <div class="chat-box">
-        <div class="messages">
+        <div class="messages" data-cy="messages">
           @if (messages().length === 0) {
-            <div class="empty-state">
+            <div class="empty-state" data-cy="chat-empty">
               @if (hasFiles()) {
                 Ask a question about your data
               } @else {
@@ -85,18 +87,18 @@
           }
           @for (msg of messages(); track $index) {
             @if (msg.loading) {
-              <div class="skeleton">
+              <div class="skeleton" data-cy="message-loading">
                 <div class="skeleton-line"></div>
                 <div class="skeleton-line short"></div>
                 <div class="skeleton-line medium"></div>
               </div>
             } @else if (msg.error) {
-              <div class="error-message">
+              <div class="error-message" data-cy="message-error">
                 <div class="error-icon">⚠️</div>
                 <div class="error-content">
                   <div class="error-text">{{ msg.errorMessage }}</div>
                   @if (msg.originalQuery) {
-                    <button class="retry-btn" (click)="retryMessage(msg)">
+                    <button class="retry-btn" data-cy="retry-btn" (click)="retryMessage(msg)">
                       ↻ Try again
                     </button>
                   }
@@ -105,19 +107,21 @@
             } @else {
               <div
                 class="message"
+                data-cy="message"
+                [attr.data-role]="msg.role"
                 [class.user]="msg.role === 'user'"
                 [class.assistant]="msg.role === 'assistant'"
               >{{ msg.text }}</div>
 
               @if (msg.cacheStats && msg.cacheStats.cacheRead > 0) {
-                <div class="cache-badge" title="Tokens loaded from prompt cache">
+                <div class="cache-badge" data-cy="cache-badge" title="Tokens loaded from prompt cache">
                   💾 Cached: {{ msg.cacheStats.cacheRead }} tokens
                 </div>
               }
 
               @if (msg.chart) {
-                <app-chart [data]="msg.chart" />
-                <button class="pin-btn" (click)="togglePin(msg)">
+                <app-chart data-cy="chart-result" [data]="msg.chart" />
+                <button class="pin-btn" data-cy="pin-btn" (click)="togglePin(msg)">
                   @if (msg.pinnedId) {
                     ✓ Pinned to dashboard
                   } @else {
@@ -126,7 +130,7 @@
                 </button>
               }
               @if (msg.table) {
-                <app-table [data]="msg.table" />
+                <app-table data-cy="table-result" [data]="msg.table" />
               }
             }
           }
@@ -134,6 +138,7 @@
 
         <div class="input-row">
           <textarea
+            data-cy="chat-input"
             [value]="userInput()"
             (input)="userInput.set($any($event.target).value)"
             (keydown)="onKeyDown($event)"
@@ -142,9 +147,10 @@
             rows="2"
           ></textarea>
           @if (isLoading()) {
-            <button class="stop-btn" (click)="stopGeneration()" title="Stop generation">⏹</button>
+            <button class="stop-btn" data-cy="stop-btn" (click)="stopGeneration()" title="Stop generation">⏹</button>
           } @else {
             <button
+              data-cy="send-btn"
               (click)="sendMessage()"
               [disabled]="!hasFiles() || !userInput().trim()"
             >→</button>
