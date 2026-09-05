@@ -39,6 +39,6 @@ export default async function handler(req: Request): Promise<Response> {
     return htmlError(e instanceof Error ? e.message : 'token exchange failed', 502);
   }
 
-  const appBaseUrl = (process.env.APP_BASE_URL ?? '').replace(/\/$/, '');
+  const appBaseUrl = (process.env['APP_BASE_URL'] ?? '').replace(/\/$/, '');
   return Response.redirect(`${appBaseUrl}/?silpo_connected=1`, 302);
 }

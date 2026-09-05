@@ -21,7 +21,7 @@ export const CODE_CHALLENGE_METHOD = 'S256';
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
 
 function requireAppBaseUrl(): string {
-  const url = process.env.APP_BASE_URL;
+  const url = process.env['APP_BASE_URL'];
   if (!url) throw new Error('APP_BASE_URL is not configured');
   return url.replace(/\/$/, '');
 }

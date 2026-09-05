@@ -13,10 +13,10 @@ function isCartProductInput(p: unknown): p is CartProductInput {
   if (typeof p !== 'object' || p === null) return false;
   const c = p as Record<string, unknown>;
   return (
-    typeof c.productId === 'string' &&
-    typeof c.companyId === 'string' &&
-    typeof c.branchId === 'string' &&
-    typeof c.quantity === 'number'
+    typeof c['productId'] === 'string' &&
+    typeof c['companyId'] === 'string' &&
+    typeof c['branchId'] === 'string' &&
+    typeof c['quantity'] === 'number'
   );
 }
 
