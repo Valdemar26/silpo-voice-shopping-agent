@@ -7,8 +7,41 @@ const PROTOCOL_VERSION = '2025-06-18';
 interface JsonRpcResponse {
   jsonrpc: '2.0';
   id: number | string;
-  result?: unknown;
+  result?: CallToolResult;
   error?: { code: number; message: string };
+}
+
+// The JSON-RPC "result" of tools/call is a CallToolResult, not the tool's
+// business payload directly — content[].text (or structuredContent, when the
+// server declares an output schema) carries the actual JSON.
+interface CallToolResult {
+  content?: Array<{ type: string; text?: string; [key: string]: unknown }>;
+  structuredContent?: unknown;
+  isError?: boolean;
+}
+
+function unwrapToolResult(name: string, result: CallToolResult | undefined): unknown {
+  if (!result) return undefined;
+
+  const textBlock = result.content?.find((block) => block.type === 'text' && typeof block.text === 'string');
+
+  if (result.isError) {
+    throw new Error(`MCP tool call "${name}" reported an error: ${textBlock?.text ?? JSON.stringify(result)}`);
+  }
+
+  if (result.structuredContent !== undefined) {
+    return result.structuredContent;
+  }
+
+  if (textBlock?.text) {
+    try {
+      return JSON.parse(textBlock.text);
+    } catch {
+      return textBlock.text;
+    }
+  }
+
+  return result;
 }
 
 function authHeaders(accessToken: string, sessionId?: string | null): HeadersInit {
@@ -120,5 +153,5 @@ export async function callMcpTool(name: string, args: Record<string, unknown>): 
   if (payload.error) {
     throw new Error(`MCP tool call "${name}" returned an error ${payload.error.code}: ${payload.error.message}`);
   }
-  return payload.result;
+  return unwrapToolResult(name, payload.result);
 }
