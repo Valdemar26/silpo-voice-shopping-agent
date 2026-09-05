@@ -1,6 +1,6 @@
 {
-  "/api/*": {
-    "target": "https://financial-ai-chat-mvp.vercel.app",
+  "/api": {
+    "target": "https://silpo-voice-shopping-agent.vercel.app",
     "secure": true,
     "changeOrigin": true,
     "logLevel": "info"

@@ -1,177 +1,107 @@
 <div class="app">
   <header>
-    <h1>📊 Financial AI Chat</h1>
-    <nav>
-      <button
-        class="nav-btn"
-        data-cy="nav-chat"
-        [class.active]="currentView() === 'chat'"
-        (click)="currentView.set('chat')"
-      >💬 Chat</button>
-      <button
-        class="nav-btn"
-        data-cy="nav-dashboard"
-        [class.active]="currentView() === 'dashboard'"
-        (click)="currentView.set('dashboard')"
-      >
-        📌 Dashboard
-        @if (pinnedCount() > 0) {
-          <span class="badge" data-cy="dashboard-badge">{{ pinnedCount() }}</span>
-        }
-      </button>
-    </nav>
-
-    @if (sessionCost() > 0) {
-      <span class="session-cost" data-cy="session-cost" title="Approximate API cost for this session">
-        💰 ${{ sessionCost().toFixed(4) }}
-      </span>
-    }
-
-    @if (hasFiles() && currentView() === 'chat') {
-      <button class="clear-btn" data-cy="clear-all-btn" (click)="clearAll()">Clear all</button>
-    }
+    <h1>Silpo Voice Shopping Agent</h1>
+    <p class="subtitle">Скелет флоу — текстовий ввід замість голосу, поки STT/TTS не підключені</p>
   </header>
 
-  @if (currentView() === 'dashboard') {
-    <app-dashboard />
-  } @else {
-    <main>
-      <div class="upload-zone" data-cy="upload-zone" (click)="fileInput.click()">
-        @if (!hasFiles()) {
-          <span>⬆️ Upload Excel or PDF files (multiple supported)</span>
+  <main>
+    <form class="input-panel" [formGroup]="form" (ngSubmit)="run()">
+      <label for="address-input">Адреса доставки</label>
+      <input
+        id="address-input"
+        data-cy="address-input"
+        type="text"
+        formControlName="address"
+        placeholder="Львів, вулиця ..., 8"
+      />
+
+      <label for="request-input">Що потрібно</label>
+      <textarea
+        id="request-input"
+        data-cy="request-input"
+        formControlName="request"
+        rows="3"
+        placeholder="молоко, хліб, яйця"
+      ></textarea>
+
+      <button type="submit" data-cy="run-btn" [disabled]="!canRun()">
+        @if (agent.running()) {
+          Виконується…
         } @else {
-          <span>➕ Add another file</span>
+          Виконати
         }
-        <input #fileInput data-cy="file-input" type="file" accept=".xlsx, .pdf" multiple (change)="onFileUpload($event)" />
-      </div>
+      </button>
+    </form>
 
-      @if (hasFiles() && messages().length <= 1) {
-        <div class="suggestions" data-cy="suggestions">
-          <span class="suggestions-label">Try asking:</span>
-          @for (q of suggestedQuestions; track q) {
-            <button class="suggestion-chip" data-cy="suggestion-chip" (click)="selectSuggestion(q)">
-              {{ q }}
-            </button>
-          }
-        </div>
-      }
-
-      @if (hasFiles()) {
-        <div class="files-list" data-cy="files-list">
-          @for (file of files(); track file.name; let i = $index) {
-            <div class="file-chip" data-cy="file-chip">
-              <span class="file-name">
-                @if (file.type === 'pdf') { 📕 } @else { 📄 } {{ file.name }}
+    @if (agent.steps().length > 0) {
+      <section class="steps-panel" data-cy="steps-panel" aria-live="polite" [attr.aria-busy]="agent.running()">
+        <h2>Кроки виконання</h2>
+        <ol>
+          @for (step of agent.steps(); track step.id) {
+            <li [class]="'step status-' + step.status" data-cy="step">
+              <span class="step-icon" aria-hidden="true">
+                @switch (step.status) {
+                  @case ('running') { ⏳ }
+                  @case ('done') { ✅ }
+                  @case ('error') { ❌ }
+                }
               </span>
-              @if (file.type === 'excel' && file.sheets) {
-                <span class="file-meta">{{ file.sheets.length }} sheet(s)</span>
-              } @else if (file.type === 'pdf') {
-                <span class="file-meta">PDF</span>
-              }
-              <button class="remove-btn" data-cy="remove-file-btn" (click)="removeFile(i)" title="Remove file">✕</button>
-            </div>
+              <span class="step-body">
+                <span class="step-label">{{ step.label }}</span>
+                @if (step.detail) {
+                  <span class="step-detail">{{ step.detail }}</span>
+                }
+              </span>
+            </li>
           }
-        </div>
-      }
+        </ol>
+      </section>
+    }
 
-      <div class="chat-box">
-        <div class="messages" data-cy="messages">
-          @if (messages().length === 0) {
-            <div class="empty-state" data-cy="chat-empty">
-              @if (hasFiles()) {
-                Ask a question about your data
-              } @else {
-                Upload Excel files to start
-              }
-            </div>
-          }
-          @for (msg of messages(); track $index) {
-            @if (msg.loading) {
-              <div class="skeleton" data-cy="message-loading">
-                <div class="skeleton-line"></div>
-                <div class="skeleton-line short"></div>
-                <div class="skeleton-line medium"></div>
-              </div>
-            } @else if (msg.error) {
-              <div class="error-message" data-cy="message-error">
-                <div class="error-icon">⚠️</div>
-                <div class="error-content">
-                  <div class="error-text">{{ msg.errorMessage }}</div>
-                  @if (msg.originalQuery) {
-                    <button class="retry-btn" data-cy="retry-btn" (click)="retryMessage(msg)">
-                      ↻ Try again
-                    </button>
-                  }
-                </div>
-              </div>
-            } @else {
-              <div
-                class="message"
-                data-cy="message"
-                [attr.data-role]="msg.role"
-                [class.user]="msg.role === 'user'"
-                [class.assistant]="msg.role === 'assistant'"
-              >{{ msg.text }}</div>
+    @if (agent.result(); as result) {
+      <section class="result-panel" data-cy="result-panel">
+        <h2>Результат</h2>
 
-              @if (msg.cacheStats && msg.cacheStats.cacheRead > 0) {
-                <div class="cache-badge" data-cy="cache-badge" title="Tokens loaded from prompt cache">
-                  💾 Cached: {{ msg.cacheStats.cacheRead }} tokens
-                </div>
-              }
-
-              @if (msg.chart) {
-                <app-chart data-cy="chart-result" [data]="msg.chart" />
-                <button class="pin-btn" data-cy="pin-btn" (click)="togglePin(msg)">
-                  @if (msg.pinnedId) {
-                    ✓ Pinned to dashboard
-                  } @else {
-                    📌 Pin to dashboard
-                  }
-                </button>
-              }
-              @if (msg.table) {
-                <app-table data-cy="table-result" [data]="msg.table" />
-              }
+        @if (cartItems().length === 0) {
+          <p class="empty" data-cy="cart-empty">У кошику ще немає товарів</p>
+        } @else {
+          <ul class="cart-items" data-cy="cart-items">
+            @for (item of cartItems(); track item.productId) {
+              <li class="cart-item" data-cy="cart-item">
+                @if (item.image) {
+                  <img [src]="item.image" [alt]="item.name ?? 'Товар'" width="48" height="48" loading="lazy" />
+                }
+                <span class="item-name">{{ item.name }}</span>
+                <span class="item-qty">× {{ item.quantity }}</span>
+                <span class="item-price">{{ item.price }} ₴</span>
+              </li>
             }
-          }
+          </ul>
+        }
+
+        <div class="totals" data-cy="cart-totals">
+          <span>Сума товарів: {{ result.cart.calculation.productsTotal }} ₴</span>
+          <span>До сплати: {{ result.cart.calculation.totalAfterDiscounts }} ₴</span>
         </div>
 
-        <div class="input-row">
-          <textarea
-            data-cy="chat-input"
-            [value]="userInput()"
-            (input)="userInput.set($any($event.target).value)"
-            (keydown)="onKeyDown($event)"
-            placeholder="Ask a question about your data... (Enter to send)"
-            [disabled]="!hasFiles() || isLoading()"
-            rows="2"
-          ></textarea>
-          @if (isLoading()) {
-            <button class="stop-btn" data-cy="stop-btn" (click)="stopGeneration()" title="Stop generation">⏹</button>
-          } @else {
-            <button
-              data-cy="send-btn"
-              (click)="sendMessage()"
-              [disabled]="!hasFiles() || !userInput().trim()"
-            >→</button>
-          }
-        </div>
-      </div>
-    </main>
-  }
+        @if (result.cart.calculation.validations.length > 0) {
+          <ul class="validations" data-cy="cart-validations">
+            @for (v of result.cart.calculation.validations; track v.message) {
+              <li [class]="'level-' + v.level">{{ v.message }}</li>
+            }
+          </ul>
+        }
 
-  <footer class="app-footer">
-    <span>
-      Built by
-      <a href="https://www.linkedin.com/in/volodymyr-zaplatynskii/" target="_blank" rel="noopener">
-        Volodymyr Zaplatynskii
-      </a>
-    </span>
-    <span class="separator">·</span>
-    <a href="https://github.com/Valdemar26/Financial-AI-Chat-MVP" target="_blank" rel="noopener">
-      GitHub
-    </a>
-    <span class="separator">·</span>
-    <span class="tagline">Angular + Anthropic API</span>
-  </footer>
+        @if (result.cart.checkoutWebLink; as checkoutLink) {
+          <a [href]="checkoutLink" target="_blank" rel="noopener" class="checkout-link" data-cy="checkout-link">
+            Перейти до оформлення
+          </a>
+        } @else {
+          <p class="checkout-pending" data-cy="checkout-pending">
+            Посилання на оформлення ще недоступне — checkout-флоу не підключено
+          </p>
+        }
+      </section>
+    }
+  </main>
 </div>
