@@ -33,6 +33,25 @@ export class AppComponent {
 
   protected readonly canRun = computed(() => this.formStatus() === 'VALID' && !this.agent.running());
 
+  // Deliberately reads raw values rather than formStatus(): the aggregate
+  // group status stays "INVALID" (same string) while only address flips from
+  // invalid to valid — since request is still empty — and a signal derived
+  // from statusChanges doesn't notify on an unchanged value, so that reason
+  // would get stuck. Values themselves change on every keystroke instead.
+  private readonly formValue = toSignal(this.form.valueChanges.pipe(startWith(this.form.getRawValue())), {
+    initialValue: this.form.getRawValue(),
+  });
+
+  // Explains why the button is disabled instead of leaving the user to guess —
+  // same principle as the rest of the app's explicit-failure-over-silence approach.
+  protected readonly runBlockedReason = computed<string | null>(() => {
+    if (this.agent.running()) return null;
+    const { address, request } = this.formValue();
+    if (!address?.trim()) return 'Заповніть адресу доставки, щоб продовжити.';
+    if (!request?.trim()) return 'Заповніть поле «Що потрібно», щоб продовжити.';
+    return null;
+  });
+
   protected readonly cartItems = computed<CartProduct[]>(
     () => this.agent.result()?.cart.shipments.flatMap((s) => s.products) ?? [],
   );

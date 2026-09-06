@@ -132,6 +132,12 @@ main {
     &:disabled { opacity: 0.5; cursor: default; }
     &:not(:disabled):hover { background: #4338ca; }
   }
+
+  .run-hint {
+    margin-top: 8px;
+    font-size: 13px;
+    color: $text-muted;
+  }
 }
 
 .steps-panel, .result-panel {

@@ -49,13 +49,22 @@
         <p class="voice-error" data-cy="voice-error" role="alert">{{ err }}</p>
       }
 
-      <button type="submit" data-cy="run-btn" [disabled]="!canRun()">
+      <button
+        type="submit"
+        data-cy="run-btn"
+        [disabled]="!canRun()"
+        [attr.aria-describedby]="runBlockedReason() ? 'run-hint' : null"
+      >
         @if (agent.running()) {
           Виконується…
         } @else {
           Виконати
         }
       </button>
+
+      @if (runBlockedReason(); as reason) {
+        <p id="run-hint" class="run-hint" data-cy="run-hint" role="status">{{ reason }}</p>
+      }
     </form>
 
     @if (agent.steps().length > 0) {
