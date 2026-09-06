@@ -24,6 +24,18 @@
 
 **Критичний фікс**: `callMcpTool` спочатку повертав сирий JSON-RPC `CallToolResult` (`{content:[{type:'text',text}], structuredContent}`) замість розпакованого бізнес-обʼєкта — усі функції мовчки отримували `undefined`. Виправлено в `lib/mcp/client.ts` (`unwrapToolResult`).
 
+**STT через Web Speech API** (`src/app/services/speech-recognition.ts`)
+Тонка обгортка над `SpeechRecognition`/`webkitSpeechRecognition` (мова `uk-UA`, `continuous: true` + `interimResults: true`). Кнопка мікрофона біля поля «Що потрібно» — натиснув → говориш → розпізнаний текст підставляється в те саме поле (можна відредагувати перед відправкою), решта флоу не змінена. Підказка під кнопкою під час запису нагадує, що зупинка — ручна (повторним натисканням), а не автоматична.
+`supported` перевіряється явно (не всі браузери мають API, Safari — обмежено): якщо недоступно, показується явне повідомлення замість тихої відмови. Так само явно оброблено «нічого не почув» — і коли рушій сам віддає `no-speech`, і коли він завершується без результату й без помилки (деякі рушії так роблять) — обидва випадки ведуть до одного й того ж повідомлення користувачу, а не мовчазного порожнього поля.
+**Фікс**: спершу стояло `continuous: false` — рушій ловив лише перший короткий сегмент до першої паузи в мовленні («хочу якийсь пивасік і горішки» → розпізнавалось тільки «горішки»). Тепер `final`-сегменти накопичуються в один рядок (не перезаписують один одного), а сесія сама зупиняється лише після ~3.5с тиші (власний таймер у сервісі, скидається на кожен `onresult`) або коли користувач сам натисне кнопку ще раз — а не після першої короткої паузи.
+
+**TTS через Respeecher Space API** (`api/tts/speak.ts` → `TtsService`)
+Коли `SilpoAgentService.run()` доходить до фінального результату (є `trace`, товари, сума), він будує коротку репліку («Знайшов молоко, хліб і яйця. Разом 245 гривень. Додав у кошик.» — з правильним відмінюванням «гривня/гривні/гривень») і віддає її `TtsService.speak()`.
+`TtsService` шле текст на `POST /api/tts/speak` (Vercel Edge Function) — фронтенд ключа Respeecher не бачить. Функція звертається до `https://api.respeecher.com/v1/public/tts/ua-rt/tts/bytes` (`X-API-Key`, голос — фіксований `RESPEECHER_VOICE_ID` з env, не обирається користувачем), повертає WAV, фронтенд програє його автоматично через `Audio`.
+Будь-яка відмова (мережа, Respeecher лежить, env не налаштовано, autoplay заблоковано браузером) ковтається мовчки в `TtsService.speak()` — голос лише доповнює, текстовий результат у UI показується завжди незалежно від TTS.
+Голос — `olesia-conversation` («Олеся: розмова»), знайдений через живий `GET /v1/public/tts/ua-rt/voices` (у статичній документації Respeecher реальний список голосів не публікується, тільки приклад-заглушка). `RESPEECHER_API_KEY` і `RESPEECHER_VOICE_ID` додані у Vercel Production і в `.env.local`.
+**Підтверджено end-to-end, не тільки код**: локальний `curl` до `/tts/bytes` з реальним ключем повернув справжній WAV, голос «Олеся: розмова» звучить коректно.
+
 **Фронтенд-скелет** (`src/app/`)
 Стару фінансову частину (Excel/PDF, Claude-чат, дашборд, chart/table) видалено повністю разом з невикористаними залежностями (`xlsx`, `chart.js`, `partial-json`, `@anthropic-ai/sdk`).
 Новий UI: адреса + текстове поле «що потрібно» (тимчасова заміна голосу) → кнопка «Виконати» → індикатор кроків (включно з trace від `setupCartForAddress`) → блок результату (товари, суми, validations, посилання на checkout — поки завжди «недоступне», бо такого поля/тула ще немає).
@@ -43,12 +55,10 @@ Angular UI (src/app) ──fetch──> api/mcp/*.ts (Vercel Edge)
 Upstash Redis: mcp:client, mcp:tokens:default, mcp:session_id, mcp:oauth:state:<state>
 ```
 
-Проєкт живе на GitHub `Valdemar26/silpo-voice-shopping-agent` (гілка `main`), Vercel-проєкт `silpo-voice-shopping-agent` (правильно прив'язаний у `.vercel/project.json`). Env vars (`UPSTASH_REDIS_REST_URL/TOKEN`, `APP_BASE_URL`, `ANTHROPIC_API_KEY`) сконфігуровані в Vercel Production.
+Проєкт живе на GitHub `Valdemar26/silpo-voice-shopping-agent` (гілка `main`), Vercel-проєкт `silpo-voice-shopping-agent` (правильно прив'язаний у `.vercel/project.json`). Env vars (`UPSTASH_REDIS_REST_URL/TOKEN`, `APP_BASE_URL`, `ANTHROPIC_API_KEY`, `RESPEECHER_API_KEY`, `RESPEECHER_VOICE_ID`) сконфігуровані в Vercel Production.
 
 ## Що лишилось
 
-- **STT** (розпізнавання мови) — не починали.
-- **TTS через Respeecher** — не починали.
 - Реальна LLM-оркестрація «що потрібно» → tool calls (зараз — наївний спліт по комах/«і»/«та», без розуміння кількості, заміни, уточнень).
 - Checkout / оформлення замовлення — жодного tool під це не досліджували; поле `checkoutWebLink` у UI — заглушка на майбутнє.
 - Обробка `DeadBranchError` (мертва філія) — зараз лише падає з помилкою, нема автоматичного retry на іншу філію чи SelfPickup/NovaPoshta.

@@ -16,13 +16,38 @@
       />
 
       <label for="request-input">Що потрібно</label>
-      <textarea
-        id="request-input"
-        data-cy="request-input"
-        formControlName="request"
-        rows="3"
-        placeholder="молоко, хліб, яйця"
-      ></textarea>
+      <div class="request-row">
+        <textarea
+          id="request-input"
+          data-cy="request-input"
+          formControlName="request"
+          rows="3"
+          placeholder="молоко, хліб, яйця"
+        ></textarea>
+        <button
+          type="button"
+          class="mic-btn"
+          data-cy="mic-btn"
+          [class.listening]="speech.listening()"
+          [attr.aria-pressed]="speech.listening()"
+          [attr.aria-label]="speech.listening() ? 'Зупинити запис' : 'Голосове введення'"
+          (click)="toggleVoiceInput()"
+        >
+          @if (speech.listening()) {
+            ⏹️
+          } @else {
+            🎤
+          }
+        </button>
+      </div>
+
+      @if (speech.listening()) {
+        <p class="mic-hint" data-cy="mic-hint">Говоріть, потім натисніть ще раз щоб зупинити</p>
+      }
+
+      @if (voiceError(); as err) {
+        <p class="voice-error" data-cy="voice-error" role="alert">{{ err }}</p>
+      }
 
       <button type="submit" data-cy="run-btn" [disabled]="!canRun()">
         @if (agent.running()) {

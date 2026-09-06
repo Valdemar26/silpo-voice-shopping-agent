@@ -1,4 +1,5 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, inject, signal } from '@angular/core';
+import { TtsService } from './tts';
 
 export type StepStatus = 'running' | 'done' | 'error';
 
@@ -49,6 +50,8 @@ export interface CartState {
 
 @Injectable({ providedIn: 'root' })
 export class SilpoAgentService {
+  private readonly tts = inject(TtsService);
+
   readonly steps = signal<AgentStep[]>([]);
   readonly result = signal<CartState | null>(null);
   readonly running = signal(false);
@@ -85,9 +88,27 @@ export class SilpoAgentService {
       }
 
       this.result.set(latest);
+      void this.tts.speak(this.buildSpokenSummary(latest));
     } finally {
       this.running.set(false);
     }
+  }
+
+  // Short spoken recap of the final cart state, read out over TTS once the
+  // run finishes. Kept separate from the visible result panel, which always
+  // renders regardless of whether the voice call succeeds.
+  private buildSpokenSummary(state: CartState): string {
+    const names = state.cart.shipments
+      .flatMap((s) => s.products)
+      .map((p) => p.name)
+      .filter((n): n is string => !!n);
+
+    if (names.length === 0) {
+      return 'Нічого не знайшов. Кошик лишився порожнім.';
+    }
+
+    const total = Math.round(state.cart.calculation.totalAfterDiscounts);
+    return `Знайшов ${joinWithI(names)}. Разом ${total} ${pluralizeHryvnia(total)}. Додав у кошик.`;
   }
 
   private addStep(step: AgentStep): void {
@@ -214,4 +235,19 @@ export class SilpoAgentService {
     this.updateStep(id, { status: 'done' });
     return { shoppingCartId: body.shoppingCartId, cart: body.cart };
   }
+}
+
+function joinWithI(items: string[]): string {
+  if (items.length === 1) return items[0];
+  return `${items.slice(0, -1).join(', ')} і ${items[items.length - 1]}`;
+}
+
+// Ukrainian grammatical number agreement for "гривня" (1 гривня, 2 гривні, 5 гривень, ...).
+function pluralizeHryvnia(amount: number): string {
+  const mod100 = Math.abs(amount) % 100;
+  const mod10 = mod100 % 10;
+  if (mod100 > 10 && mod100 < 20) return 'гривень';
+  if (mod10 === 1) return 'гривня';
+  if (mod10 >= 2 && mod10 <= 4) return 'гривні';
+  return 'гривень';
 }
