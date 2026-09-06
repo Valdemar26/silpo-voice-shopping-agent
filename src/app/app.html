@@ -188,9 +188,21 @@
             </p>
           }
         } @else if (isBelowMinimum()) {
-          <p class="checkout-pending" data-cy="checkout-pending">
-            Додайте товарів ще на {{ amountRemainingForCheckout() }} ₴, щоб оформити замовлення
-          </p>
+          <div class="min-order-progress" data-cy="checkout-pending">
+            <p class="checkout-pending">
+              Додайте товарів ще на {{ amountRemainingForCheckout() }} ₴, щоб оформити замовлення
+            </p>
+            <div
+              class="progress-track"
+              role="progressbar"
+              [attr.aria-valuenow]="minimumOrderProgress()"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-label="Прогрес до мінімальної суми замовлення"
+            >
+              <div class="progress-fill" [style.width.%]="minimumOrderProgress()"></div>
+            </div>
+          </div>
         } @else {
           <p class="checkout-pending" data-cy="checkout-pending">Кошик поки недоступний до оформлення</p>
         }

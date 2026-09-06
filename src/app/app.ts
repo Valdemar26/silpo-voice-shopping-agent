@@ -106,6 +106,11 @@ export class AppComponent {
     return status?.kind === 'below-minimum' ? status.remaining : 0;
   });
 
+  protected readonly minimumOrderProgress = computed<number>(() => {
+    const status = this.checkoutStatus();
+    return status?.kind === 'below-minimum' ? Math.round(status.percent) : 0;
+  });
+
   // Doesn't touch the run/result flow at all — just hands the already-built
   // cart off to whoever's paying. Native share sheet gives its own feedback
   // on success, so only the clipboard fallback (and outright failure) need a

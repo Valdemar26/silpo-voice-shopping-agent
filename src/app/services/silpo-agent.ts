@@ -340,7 +340,7 @@ function getOrderCostMin(validations: CartValidation[]): number | null {
 
 export type CheckoutStatus =
   | { kind: 'ready' }
-  | { kind: 'below-minimum'; remaining: number }
+  | { kind: 'below-minimum'; remaining: number; percent: number }
   | { kind: 'adult-confirmation-required' }
   | { kind: 'blocked' };
 
@@ -360,8 +360,10 @@ export function getCheckoutStatus(state: CartState): CheckoutStatus {
 
   const orderCostMin = getOrderCostMin(validations);
   if (orderCostMin !== null) {
-    const remaining = Math.max(0, Math.ceil(orderCostMin - state.cart.calculation.totalAfterDiscounts));
-    return { kind: 'below-minimum', remaining };
+    const total = state.cart.calculation.totalAfterDiscounts;
+    const remaining = Math.max(0, Math.ceil(orderCostMin - total));
+    const percent = orderCostMin > 0 ? Math.min(100, Math.max(0, (total / orderCostMin) * 100)) : 0;
+    return { kind: 'below-minimum', remaining, percent };
   }
 
   const hasAdultIssue = validations.some((v) => v.message === 'order.adult.is_not_confirmed');
