@@ -28,6 +28,11 @@ export interface CartValidation {
   context?: unknown;
 }
 
+interface ParsedItem {
+  query: string;
+  quantity: number;
+}
+
 export interface SilpoCart {
   id: string;
   deliveryType: string;
@@ -85,8 +90,8 @@ export class SilpoAgentService {
       }
 
       let latest = cartState;
-      for (const query of queries) {
-        const product = await this.searchAndPickProduct(latest, query);
+      for (const item of queries) {
+        const product = await this.searchAndPickProduct(latest, item.query, item.quantity);
         if (!product) continue;
 
         const updated = await this.addProductToCart(latest.shoppingCartId, product);
@@ -195,17 +200,20 @@ export class SilpoAgentService {
   // and dropping selection criteria ("по акції") rather than asking for
   // clarification. Visible as its own trace step for the same transparency
   // reason as every other step here.
-  private async parseSearchQueries(request: string): Promise<string[] | null> {
+  private async parseSearchQueries(request: string): Promise<ParsedItem[] | null> {
     const id = 'parse-query';
     this.addStep({ id, label: 'Розбір запиту', status: 'running' });
 
-    const body = await this.postJson<{ items: string[] }>('/api/agent/parse-items', { text: request }, id);
+    const body = await this.postJson<{ items: ParsedItem[] }>('/api/agent/parse-items', { text: request }, id);
     if (!body) return null;
 
-    const items = body.items.map((s) => s.trim()).filter((s) => s.length > 0);
+    const items = body.items
+      .map((i) => ({ query: i.query.trim(), quantity: Math.max(1, Math.round(i.quantity)) }))
+      .filter((i) => i.query.length > 0);
+
     this.updateStep(id, {
       status: 'done',
-      detail: items.length > 0 ? items.join(', ') : 'Товарів не розпізнано',
+      detail: items.length > 0 ? items.map((i) => formatQuantityLabel(i.query, i.quantity)).join(', ') : 'Товарів не розпізнано',
     });
 
     return items;
@@ -255,7 +263,7 @@ export class SilpoAgentService {
     return { shoppingCartId: body.shoppingCartId, cart: body.cart, checkoutWebLink: body.checkoutWebLink };
   }
 
-  private async searchAndPickProduct(cartState: CartState, query: string): Promise<CartProduct | null> {
+  private async searchAndPickProduct(cartState: CartState, query: string, quantity: number): Promise<CartProduct | null> {
     const id = `search-${query}`;
     this.addStep({ id, label: `Пошук: «${query}»`, status: 'running' });
 
@@ -289,7 +297,7 @@ export class SilpoAgentService {
       branchId: found.branchId,
       name: found.name,
       image: found.image,
-      quantity: 1,
+      quantity,
       price: found.price,
       stock: found.stock,
     };
@@ -297,7 +305,8 @@ export class SilpoAgentService {
 
   private async addProductToCart(shoppingCartId: string, product: CartProduct): Promise<CartState | null> {
     const id = `add-${product.productId}`;
-    this.addStep({ id, label: `Додавання в кошик: «${product.name}»`, status: 'running' });
+    const label = formatQuantityLabel(product.name ?? 'товар', product.quantity);
+    this.addStep({ id, label: `Додавання в кошик: «${label}»`, status: 'running' });
 
     const body = await this.postJson<{ shoppingCartId: string; cart: SilpoCart; checkoutWebLink?: string }>(
       '/api/mcp/cart/items',
@@ -379,6 +388,12 @@ export function buildShareText(state: CartState): string {
   const link = state.checkoutWebLink ? ` Оформити: ${state.checkoutWebLink}` : '';
 
   return `Зібрав кошик у Сільпо: ${itemsList}, разом ${total}₴.${link}`;
+}
+
+// "молоко × 2" when the quantity is worth calling out, plain "хліб" for the
+// common single-item case — avoids "× 1" noise on every trace line.
+function formatQuantityLabel(name: string, quantity: number): string {
+  return quantity !== 1 ? `${name} × ${quantity}` : name;
 }
 
 function joinWithI(items: string[]): string {

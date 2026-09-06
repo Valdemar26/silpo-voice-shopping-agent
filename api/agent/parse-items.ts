@@ -7,6 +7,17 @@ interface ParseItemsBody {
   text?: unknown;
 }
 
+interface ParsedItem {
+  query: string;
+  quantity: number;
+}
+
+function isParsedItem(item: unknown): item is ParsedItem {
+  if (typeof item !== 'object' || item === null) return false;
+  const i = item as Record<string, unknown>;
+  return typeof i['query'] === 'string' && typeof i['quantity'] === 'number';
+}
+
 const SYSTEM_PROMPT = `Ти розбираєш вільну українську фразу з голосового замовлення продуктів на список конкретних пошукових запитів для каталогу продуктового магазину.
 
 Правила:
@@ -15,18 +26,33 @@ const SYSTEM_PROMPT = `Ти розбираєш вільну українську
 - Критерії вибору серед знайдених товарів (наприклад "по акції", "найдешевше", "щоб було свіже") — це НЕ окремий товар, пропускай їх повністю.
 - Слова ввічливості, вставні конструкції ("я б хотів", "можливо", "також") ігноруй.
 - Якщо у фразі взагалі немає жодного товару — поверни порожній список.
-- Не вигадуй товари, яких немає у фразі, окрім конкретизації розпливчастих категорій вище.`;
+- Не вигадуй товари, яких немає у фразі, окрім конкретизації розпливчастих категорій вище.
+- Кількість (quantity): якщо в мовленні явно названо число ("два літри молока", "три яйця", "5 йогуртів") — постав саме це число. Якщо кількість не згадана взагалі, або згадана лише як означений артикль/тара без числа ("пляшку пива", "буханку хліба", "пачку цукерок") — quantity = 1. Ніколи не вигадуй число, якого не було сказано.`;
 
 const extractTool: Anthropic.Tool = {
   name: 'extract_search_queries',
-  description: 'Зберігає розібраний список конкретних пошукових запитів товарів.',
+  description: 'Зберігає розібраний список конкретних пошукових запитів товарів разом із кількістю кожного.',
   input_schema: {
     type: 'object',
     properties: {
       items: {
         type: 'array',
-        items: { type: 'string' },
-        description: 'Конкретні одно-двослівні пошукові запити товарів українською, без критеріїв вибору.',
+        items: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'Конкретний одно-двослівний пошуковий запит товару українською, без критеріїв вибору.',
+            },
+            quantity: {
+              type: 'integer',
+              description:
+                'Кількість, якщо явно названа числом у мовленні; інакше 1. Ніколи не вигадуй число, якого не було сказано.',
+            },
+          },
+          required: ['query', 'quantity'],
+        },
+        description: 'Список товарів із кількістю.',
       },
     },
     required: ['items'],
@@ -77,11 +103,13 @@ export default async function handler(req: Request): Promise<Response> {
     }
 
     const input = toolUse.input as { items?: unknown };
-    if (!Array.isArray(input.items) || !input.items.every((i) => typeof i === 'string')) {
+    if (!Array.isArray(input.items) || !input.items.every(isParsedItem)) {
       return json({ error: 'Model returned an invalid items list' }, 502);
     }
 
-    const items = input.items.map((i) => i.trim()).filter((i) => i.length > 0);
+    const items = input.items
+      .map((i) => ({ query: i.query.trim(), quantity: Math.max(1, Math.round(i.quantity)) }))
+      .filter((i) => i.query.length > 0);
     return json({ items }, 200);
   } catch (e) {
     if (e instanceof Anthropic.AuthenticationError) {
