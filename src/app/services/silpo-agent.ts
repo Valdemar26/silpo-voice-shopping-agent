@@ -25,6 +25,7 @@ export interface CartValidation {
   level: string;
   type: string;
   message: string;
+  context?: unknown;
 }
 
 export interface SilpoCart {
@@ -38,14 +39,15 @@ export interface SilpoCart {
     productsTotal: number;
     validations: CartValidation[];
   };
-  // Not yet returned by any endpoint — no checkout/order-placement flow exists
-  // yet. Kept optional so the UI has somewhere to show it once that lands.
-  checkoutWebLink?: string;
 }
 
 export interface CartState {
   shoppingCartId: string;
   cart: SilpoCart;
+  // Sibling of `cart` in the real MCP response, not nested inside it —
+  // confirmed against a live call. Present only once the cart clears
+  // order.cost.min (and any other blocking validation).
+  checkoutWebLink?: string;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -92,10 +94,33 @@ export class SilpoAgentService {
       }
 
       this.result.set(latest);
+      this.addCheckoutStatusStep(latest);
       void this.tts.speak(this.buildSpokenSummary(latest));
     } finally {
       this.running.set(false);
     }
+  }
+
+  // Final, explicit outcome of the run: can the cart be checked out right
+  // now, or is it still short of order.cost.min (and by how much)? Mirrors
+  // whatever the "Результат" panel itself will show for the same cart state,
+  // computed once from the same real fields rather than a guessed threshold.
+  private addCheckoutStatusStep(state: CartState): void {
+    const id = 'checkout-status';
+
+    if (state.checkoutWebLink) {
+      this.addStep({ id, label: 'Кошик готовий до оформлення', status: 'done' });
+      return;
+    }
+
+    const orderCostMin = getOrderCostMin(state.cart.calculation.validations);
+    if (orderCostMin !== null) {
+      const remaining = Math.max(0, Math.ceil(orderCostMin - state.cart.calculation.totalAfterDiscounts));
+      this.addStep({ id, label: `Потрібно ще ${remaining} ₴ до мінімальної суми`, status: 'done' });
+      return;
+    }
+
+    this.addStep({ id, label: 'Кошик поки недоступний до оформлення', status: 'done' });
   }
 
   // Removes a single product from the result panel's cart in place — no page
@@ -120,7 +145,7 @@ export class SilpoAgentService {
         return;
       }
 
-      this.result.set({ shoppingCartId: data.shoppingCartId, cart: data.cart });
+      this.result.set({ shoppingCartId: data.shoppingCartId, cart: data.cart, checkoutWebLink: data.checkoutWebLink });
     } catch (e) {
       this.removeError.set(e instanceof Error ? e.message : 'Мережева помилка при видаленні товару');
     } finally {
@@ -206,11 +231,12 @@ export class SilpoAgentService {
     const id = 'setup-cart';
     this.addStep({ id, label: `Налаштування кошика для адреси «${address}»`, status: 'running' });
 
-    const body = await this.postJson<{ shoppingCartId: string; cart: SilpoCart; trace: Array<{ step: string; detail: string }> }>(
-      '/api/mcp/cart/create',
-      { address },
-      id,
-    );
+    const body = await this.postJson<{
+      shoppingCartId: string;
+      cart: SilpoCart;
+      checkoutWebLink?: string;
+      trace: Array<{ step: string; detail: string }>;
+    }>('/api/mcp/cart/create', { address }, id);
     if (!body) return null;
 
     this.updateStep(id, { status: 'done', detail: `Кошик ${body.shoppingCartId}` });
@@ -221,7 +247,7 @@ export class SilpoAgentService {
       this.addStep({ id: `trace-${i}-${entry.step}`, label: entry.step, status: 'done', detail: entry.detail });
     });
 
-    return { shoppingCartId: body.shoppingCartId, cart: body.cart };
+    return { shoppingCartId: body.shoppingCartId, cart: body.cart, checkoutWebLink: body.checkoutWebLink };
   }
 
   private async searchAndPickProduct(cartState: CartState, query: string): Promise<CartProduct | null> {
@@ -268,7 +294,7 @@ export class SilpoAgentService {
     const id = `add-${product.productId}`;
     this.addStep({ id, label: `Додавання в кошик: «${product.name}»`, status: 'running' });
 
-    const body = await this.postJson<{ shoppingCartId: string; cart: SilpoCart }>(
+    const body = await this.postJson<{ shoppingCartId: string; cart: SilpoCart; checkoutWebLink?: string }>(
       '/api/mcp/cart/items',
       {
         products: [
@@ -286,8 +312,17 @@ export class SilpoAgentService {
     if (!body) return null;
 
     this.updateStep(id, { status: 'done' });
-    return { shoppingCartId: body.shoppingCartId, cart: body.cart };
+    return { shoppingCartId: body.shoppingCartId, cart: body.cart, checkoutWebLink: body.checkoutWebLink };
   }
+}
+
+// Reads the minimum order cost straight from validations[] — the same real
+// field the "Результат" panel uses to decide between the checkout button and
+// the "add ₴N more" message. Not a guessed/hardcoded threshold.
+export function getOrderCostMin(validations: CartValidation[]): number | null {
+  const validation = validations.find((v) => v.message === 'order.cost.min');
+  const context = validation?.context as { orderCostMin?: unknown } | undefined;
+  return typeof context?.orderCostMin === 'number' ? context.orderCostMin : null;
 }
 
 function joinWithI(items: string[]): string {

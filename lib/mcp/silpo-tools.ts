@@ -45,6 +45,12 @@ export interface CartAddress {
 // The MCP tool descriptions document response *fields* (for an LLM caller) but
 // not a formal JSON schema, so this cart shape is inferred and permissive —
 // expect to loosen/tighten it once tested against the real server.
+//
+// checkoutWebLink/checkoutMobileLink are siblings of `cart`, not nested
+// inside it — confirmed against a real response. They're present once the
+// cart clears order.cost.min (and any other blocking validation), absent
+// otherwise; callers that reconstruct this object (setupCartForAddress etc.)
+// must carry them through explicitly or they silently vanish.
 export interface ShoppingCart {
   cart: {
     deliveryType: DeliveryType;
@@ -64,6 +70,8 @@ export interface ShoppingCart {
     };
     [key: string]: unknown;
   };
+  checkoutWebLink?: string;
+  checkoutMobileLink?: string;
 }
 
 export async function getMyShoppingCart(): Promise<MyShoppingCart> {
@@ -412,6 +420,8 @@ export interface CartSetupTraceEntry {
 export interface CartSetupResult {
   shoppingCartId: string;
   cart: ShoppingCart['cart'];
+  checkoutWebLink?: string;
+  checkoutMobileLink?: string;
   trace: CartSetupTraceEntry[];
 }
 
@@ -486,5 +496,11 @@ export async function setupCartForAddress(
     detail: `shoppingCartId=${result.shoppingCartId}, timeslot=${result.cart.timeslot.start} → ${result.cart.timeslot.end}`,
   });
 
-  return { shoppingCartId: result.shoppingCartId, cart: result.cart, trace };
+  return {
+    shoppingCartId: result.shoppingCartId,
+    cart: result.cart,
+    checkoutWebLink: result.checkoutWebLink,
+    checkoutMobileLink: result.checkoutMobileLink,
+    trace,
+  };
 }

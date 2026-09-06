@@ -140,14 +140,16 @@
           </ul>
         }
 
-        @if (result.cart.checkoutWebLink; as checkoutLink) {
-          <a [href]="checkoutLink" target="_blank" rel="noopener" class="checkout-link" data-cy="checkout-link">
-            Перейти до оформлення
+        @if (result.checkoutWebLink; as checkoutLink) {
+          <a [href]="checkoutLink" target="_blank" rel="noopener" class="checkout-btn" data-cy="checkout-link">
+            Оформити замовлення
           </a>
-        } @else {
+        } @else if (orderCostMin() !== null) {
           <p class="checkout-pending" data-cy="checkout-pending">
-            Посилання на оформлення ще недоступне — checkout-флоу не підключено
+            Додайте товарів ще на {{ amountRemainingForCheckout() }} ₴, щоб оформити замовлення
           </p>
+        } @else {
+          <p class="checkout-pending" data-cy="checkout-pending">Кошик поки недоступний до оформлення</p>
         }
       </section>
     }

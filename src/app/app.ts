@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { startWith } from 'rxjs';
-import { CartProduct, SilpoAgentService } from './services/silpo-agent';
+import { CartProduct, getOrderCostMin, SilpoAgentService } from './services/silpo-agent';
 import { SpeechRecognitionService, VoiceInputErrorReason } from './services/speech-recognition';
 
 @Component({
@@ -55,6 +55,22 @@ export class AppComponent {
   protected readonly cartItems = computed<CartProduct[]>(
     () => this.agent.result()?.cart.shipments.flatMap((s) => s.products) ?? [],
   );
+
+  // Drives the checkout button vs. "add ₴N more" message in the result
+  // panel. Reactive to agent.result(), so removing an item (which can drop
+  // the cart back below order.cost.min) updates this immediately too — not
+  // just right after a run.
+  protected readonly orderCostMin = computed<number | null>(() => {
+    const result = this.agent.result();
+    return result ? getOrderCostMin(result.cart.calculation.validations) : null;
+  });
+
+  protected readonly amountRemainingForCheckout = computed<number>(() => {
+    const result = this.agent.result();
+    const min = this.orderCostMin();
+    if (!result || min === null) return 0;
+    return Math.max(0, Math.ceil(min - result.cart.calculation.totalAfterDiscounts));
+  });
 
   protected run(): void {
     if (!this.canRun()) return;
