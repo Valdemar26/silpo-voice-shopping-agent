@@ -1,7 +1,9 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { startWith } from 'rxjs';
+import { GeolocationService } from './services/geolocation';
+import { MicLevelService } from './services/mic-level';
 import { buildShareText, CartProduct, getCheckoutStatus, SilpoAgentService } from './services/silpo-agent';
 import { ShareService } from './services/share';
 import { SpeechRecognitionService, VoiceInputErrorReason } from './services/speech-recognition';
@@ -17,10 +19,28 @@ export class AppComponent {
   private readonly fb = inject(FormBuilder);
   protected readonly agent = inject(SilpoAgentService);
   protected readonly speech = inject(SpeechRecognitionService);
+  protected readonly micLevel = inject(MicLevelService);
   private readonly share = inject(ShareService);
+  private readonly geolocation = inject(GeolocationService);
 
   protected readonly voiceError = signal<string | null>(null);
   protected readonly shareFeedback = signal<{ text: string; ok: boolean } | null>(null);
+  protected readonly geoLocating = signal(false);
+  protected readonly geoError = signal<string | null>(null);
+
+  constructor() {
+    // Keyed off speech.listening() rather than called inline in
+    // toggleVoiceInput() — recognition can also stop on its own (silence
+    // timeout), and this way the visualizer's start/stop always tracks the
+    // real listening state regardless of which path ended it.
+    effect(() => {
+      if (this.speech.listening()) {
+        void this.micLevel.start();
+      } else {
+        this.micLevel.stop();
+      }
+    });
+  }
 
   protected readonly form = this.fb.nonNullable.group({
     address: ['', Validators.required],
@@ -102,6 +122,49 @@ export class AppComponent {
       return;
     }
     setTimeout(() => this.shareFeedback.set(null), 3000);
+  }
+
+  // silpo_find_address only takes free text, no coordinate search — so this
+  // reverse-geocodes via the backend and drops the result straight into the
+  // address field, still editable before running, same as the mic transcript.
+  protected async useMyLocation(): Promise<void> {
+    this.geoError.set(null);
+    this.geoLocating.set(true);
+
+    try {
+      const position = await this.geolocation.getCurrentPosition();
+
+      if (position.kind === 'unsupported') {
+        this.geoError.set('Геолокація не підтримується у цьому браузері. Введіть адресу вручну.');
+        return;
+      }
+      if (position.kind === 'denied') {
+        this.geoError.set('Доступ до геолокації заборонено. Дозвольте доступ у налаштуваннях браузера або введіть адресу вручну.');
+        return;
+      }
+      if (position.kind === 'unavailable') {
+        this.geoError.set('Не вдалося визначити місцезнаходження. Спробуйте ще раз або введіть адресу вручну.');
+        return;
+      }
+
+      const response = await fetch('/api/geo/reverse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ latitude: position.latitude, longitude: position.longitude }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        this.geoError.set(data?.error ?? 'Не вдалося визначити адресу за координатами.');
+        return;
+      }
+
+      this.form.controls.address.setValue(data.address);
+    } catch (e) {
+      this.geoError.set(e instanceof Error ? e.message : 'Мережева помилка при визначенні адреси.');
+    } finally {
+      this.geoLocating.set(false);
+    }
   }
 
   protected run(): void {

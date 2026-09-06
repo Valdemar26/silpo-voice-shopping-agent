@@ -7,13 +7,33 @@
   <main>
     <form class="input-panel" [formGroup]="form" (ngSubmit)="run()">
       <label for="address-input">Адреса доставки</label>
-      <input
-        id="address-input"
-        data-cy="address-input"
-        type="text"
-        formControlName="address"
-        placeholder="Львів, вулиця ..., 8"
-      />
+      <div class="address-row">
+        <input
+          id="address-input"
+          data-cy="address-input"
+          type="text"
+          formControlName="address"
+          placeholder="Львів, вулиця ..., 8"
+        />
+        <button
+          type="button"
+          class="geo-btn"
+          data-cy="geo-btn"
+          [disabled]="geoLocating()"
+          aria-label="Визначити адресу за геолокацією"
+          (click)="useMyLocation()"
+        >
+          @if (geoLocating()) {
+            ⏳
+          } @else {
+            📍
+          }
+        </button>
+      </div>
+
+      @if (geoError(); as err) {
+        <p class="geo-error" data-cy="geo-error" role="alert">{{ err }}</p>
+      }
 
       <label for="request-input">Що потрібно</label>
       <div class="request-row">
@@ -34,7 +54,11 @@
           (click)="toggleVoiceInput()"
         >
           @if (speech.listening()) {
-            ⏹️
+            <span class="mic-visualizer" data-cy="mic-visualizer" aria-hidden="true">
+              @for (level of micLevel.levels(); track $index) {
+                <span class="mic-bar" [style.height.%]="15 + level * 85"></span>
+              }
+            </span>
           } @else {
             🎤
           }

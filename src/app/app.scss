@@ -66,6 +66,40 @@ main {
     &:focus-visible { border-color: $accent; }
   }
 
+  .address-row {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+
+    input { flex: 1; }
+  }
+
+  .geo-btn {
+    flex-shrink: 0;
+    width: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: $surface;
+    color: $text;
+    border: 1px solid $border;
+    border-radius: 8px;
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    outline-offset: 2px;
+
+    &:not(:disabled):hover { border-color: $accent; }
+    &:focus-visible { border-color: $accent; }
+    &:disabled { opacity: 0.6; cursor: default; }
+  }
+
+  .geo-error {
+    margin-top: 8px;
+    font-size: 13px;
+    color: $error;
+  }
+
   .request-row {
     display: flex;
     align-items: flex-start;
@@ -102,6 +136,23 @@ main {
 
       &:not(:disabled):hover { background: $error; }
     }
+  }
+
+  .mic-visualizer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    width: 18px;
+    height: 16px;
+  }
+
+  .mic-bar {
+    flex: 1;
+    background: #fff;
+    border-radius: 1px;
+    min-height: 2px;
+    transition: height 0.08s ease-out;
   }
 
   .mic-hint {
