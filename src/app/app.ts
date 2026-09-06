@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { startWith } from 'rxjs';
-import { buildShareText, CartProduct, getOrderCostMin, SilpoAgentService } from './services/silpo-agent';
+import { buildShareText, CartProduct, getCheckoutStatus, SilpoAgentService } from './services/silpo-agent';
 import { ShareService } from './services/share';
 import { SpeechRecognitionService, VoiceInputErrorReason } from './services/speech-recognition';
 
@@ -59,20 +59,30 @@ export class AppComponent {
     () => this.agent.result()?.cart.shipments.flatMap((s) => s.products) ?? [],
   );
 
-  // Drives the checkout button vs. "add ₴N more" message in the result
-  // panel. Reactive to agent.result(), so removing an item (which can drop
-  // the cart back below order.cost.min) updates this immediately too — not
-  // just right after a run.
-  protected readonly orderCostMin = computed<number | null>(() => {
+  // Drives which of the checkout button / "add ₴N more" / adult-confirmation
+  // note / blocked message the result panel shows. Reactive to
+  // agent.result(), so removing an item (which can drop the cart back below
+  // order.cost.min) updates this immediately too — not just right after a run.
+  private readonly checkoutStatus = computed(() => {
     const result = this.agent.result();
-    return result ? getOrderCostMin(result.cart.calculation.validations) : null;
+    return result ? getCheckoutStatus(result) : null;
   });
 
+  // Ready to show the checkout button — true for a fully clean cart, and
+  // also when the only outstanding issue is order.adult.is_not_confirmed,
+  // since Silpo defers that confirmation to the checkout page itself rather
+  // than blocking checkoutWebLink.
+  protected readonly isCheckoutReady = computed(
+    () => this.checkoutStatus()?.kind === 'ready' || this.checkoutStatus()?.kind === 'adult-confirmation-required',
+  );
+
+  protected readonly needsAdultConfirmation = computed(() => this.checkoutStatus()?.kind === 'adult-confirmation-required');
+
+  protected readonly isBelowMinimum = computed(() => this.checkoutStatus()?.kind === 'below-minimum');
+
   protected readonly amountRemainingForCheckout = computed<number>(() => {
-    const result = this.agent.result();
-    const min = this.orderCostMin();
-    if (!result || min === null) return 0;
-    return Math.max(0, Math.ceil(min - result.cart.calculation.totalAfterDiscounts));
+    const status = this.checkoutStatus();
+    return status?.kind === 'below-minimum' ? status.remaining : 0;
   });
 
   // Doesn't touch the run/result flow at all — just hands the already-built

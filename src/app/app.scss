@@ -322,6 +322,15 @@ main {
   &.error { color: $error; }
 }
 
+.checkout-note {
+  margin-top: 10px;
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
 .checkout-pending {
   margin-top: 16px;
   font-size: 13px;

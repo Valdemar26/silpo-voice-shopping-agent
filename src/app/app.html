@@ -140,7 +140,7 @@
           </ul>
         }
 
-        @if (result.checkoutWebLink; as checkoutLink) {
+        @if (isCheckoutReady() && result.checkoutWebLink; as checkoutLink) {
           <div class="checkout-actions">
             <a [href]="checkoutLink" target="_blank" rel="noopener" class="checkout-btn" data-cy="checkout-link">
               Оформити замовлення
@@ -149,12 +149,17 @@
               Поділитися замовленням
             </button>
           </div>
+          @if (needsAdultConfirmation()) {
+            <p class="checkout-note" data-cy="checkout-adult-note">
+              Потрібне підтвердження повноліття — це буде запропоновано на сторінці оформлення.
+            </p>
+          }
           @if (shareFeedback(); as feedback) {
             <p class="share-feedback" [class.error]="!feedback.ok" data-cy="share-feedback" role="status">
               {{ feedback.text }}
             </p>
           }
-        } @else if (orderCostMin() !== null) {
+        } @else if (isBelowMinimum()) {
           <p class="checkout-pending" data-cy="checkout-pending">
             Додайте товарів ще на {{ amountRemainingForCheckout() }} ₴, щоб оформити замовлення
           </p>

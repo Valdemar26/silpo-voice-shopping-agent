@@ -101,26 +101,31 @@ export class SilpoAgentService {
     }
   }
 
-  // Final, explicit outcome of the run: can the cart be checked out right
-  // now, or is it still short of order.cost.min (and by how much)? Mirrors
-  // whatever the "Результат" panel itself will show for the same cart state,
-  // computed once from the same real fields rather than a guessed threshold.
+  // Final, explicit outcome of the run — mirrors whatever the "Результат"
+  // panel itself will show for the same cart state, computed once via
+  // getCheckoutStatus() so the two can't drift apart again.
   private addCheckoutStatusStep(state: CartState): void {
     const id = 'checkout-status';
+    const status = getCheckoutStatus(state);
 
-    if (state.checkoutWebLink) {
-      this.addStep({ id, label: 'Кошик готовий до оформлення', status: 'done' });
-      return;
+    switch (status.kind) {
+      case 'ready':
+        this.addStep({ id, label: 'Кошик готовий до оформлення', status: 'done' });
+        return;
+      case 'below-minimum':
+        this.addStep({ id, label: `Потрібно ще ${status.remaining} ₴ до мінімальної суми`, status: 'done' });
+        return;
+      case 'adult-confirmation-required':
+        this.addStep({
+          id,
+          label: 'Кошик готовий до оформлення — знадобиться підтвердження повноліття на сторінці оформлення',
+          status: 'done',
+        });
+        return;
+      case 'blocked':
+        this.addStep({ id, label: 'Кошик поки недоступний до оформлення', status: 'done' });
+        return;
     }
-
-    const orderCostMin = getOrderCostMin(state.cart.calculation.validations);
-    if (orderCostMin !== null) {
-      const remaining = Math.max(0, Math.ceil(orderCostMin - state.cart.calculation.totalAfterDiscounts));
-      this.addStep({ id, label: `Потрібно ще ${remaining} ₴ до мінімальної суми`, status: 'done' });
-      return;
-    }
-
-    this.addStep({ id, label: 'Кошик поки недоступний до оформлення', status: 'done' });
   }
 
   // Removes a single product from the result panel's cart in place — no page
@@ -316,13 +321,48 @@ export class SilpoAgentService {
   }
 }
 
-// Reads the minimum order cost straight from validations[] — the same real
-// field the "Результат" panel uses to decide between the checkout button and
-// the "add ₴N more" message. Not a guessed/hardcoded threshold.
-export function getOrderCostMin(validations: CartValidation[]): number | null {
+// Reads the minimum order cost straight from validations[] — not a
+// guessed/hardcoded threshold.
+function getOrderCostMin(validations: CartValidation[]): number | null {
   const validation = validations.find((v) => v.message === 'order.cost.min');
   const context = validation?.context as { orderCostMin?: unknown } | undefined;
   return typeof context?.orderCostMin === 'number' ? context.orderCostMin : null;
+}
+
+export type CheckoutStatus =
+  | { kind: 'ready' }
+  | { kind: 'below-minimum'; remaining: number }
+  | { kind: 'adult-confirmation-required' }
+  | { kind: 'blocked' };
+
+// Single source of truth for "can this cart be checked out right now", used
+// by both the trace step and the result panel — they'd drifted apart before:
+// the button showed on checkoutWebLink presence alone, ignoring any other
+// error-level validation (e.g. order.adult.is_not_confirmed, found on an
+// alcohol order) that was still sitting in validations[].
+//
+// order.adult.is_not_confirmed specifically does NOT block checkoutWebLink —
+// Silpo asks for age confirmation on the checkout page itself — so that one
+// case still shows the button, plus an explicit note. Any other error-level
+// validation is treated conservatively as blocking, since it hasn't been
+// verified that checkoutWebLink stays usable through it.
+export function getCheckoutStatus(state: CartState): CheckoutStatus {
+  const validations = state.cart.calculation.validations;
+
+  const orderCostMin = getOrderCostMin(validations);
+  if (orderCostMin !== null) {
+    const remaining = Math.max(0, Math.ceil(orderCostMin - state.cart.calculation.totalAfterDiscounts));
+    return { kind: 'below-minimum', remaining };
+  }
+
+  const hasAdultIssue = validations.some((v) => v.message === 'order.adult.is_not_confirmed');
+  const hasOtherError = validations.some((v) => v.level === 'error' && v.message !== 'order.adult.is_not_confirmed');
+
+  if (state.checkoutWebLink && !hasOtherError) {
+    return hasAdultIssue ? { kind: 'adult-confirmation-required' } : { kind: 'ready' };
+  }
+
+  return { kind: 'blocked' };
 }
 
 // Short text for the "Поділитися замовленням" action — the person sharing
