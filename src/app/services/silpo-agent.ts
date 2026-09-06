@@ -67,13 +67,14 @@ export class SilpoAgentService {
       const cartState = await this.setupCart(address);
       if (!cartState) return;
 
-      const queries = this.parseItemQueries(request);
+      const queries = await this.parseSearchQueries(request);
+      if (queries === null) return;
       if (queries.length === 0) {
         this.addStep({
           id: 'no-items',
           label: 'Немає товарів для пошуку',
           status: 'error',
-          detail: 'Введи хоча б один товар у полі "Що потрібно"',
+          detail: 'Не вдалося розпізнати жодного товару у фразі — спробуй сформулювати інакше',
         });
         return;
       }
@@ -119,13 +120,28 @@ export class SilpoAgentService {
     this.steps.update((steps) => steps.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   }
 
-  // Crude stand-in for the future LLM parse step: split free text into
-  // separate search terms. Good enough to exercise the pipeline end to end.
-  private parseItemQueries(request: string): string[] {
-    return request
-      .split(/[,;\n]| і | та | й /giu)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
+  // LLM step between free text and find_products_batch: a naive split on
+  // separator words breaks on multi-word phrases (find_products_batch gets
+  // one long sentence as a single query and returns 0 results), so this
+  // hands the whole phrase to an LLM that returns concrete 1-2 word search
+  // queries instead — resolving vague categories ("смаколики" -> "цукерки")
+  // and dropping selection criteria ("по акції") rather than asking for
+  // clarification. Visible as its own trace step for the same transparency
+  // reason as every other step here.
+  private async parseSearchQueries(request: string): Promise<string[] | null> {
+    const id = 'parse-query';
+    this.addStep({ id, label: 'Розбір запиту', status: 'running' });
+
+    const body = await this.postJson<{ items: string[] }>('/api/agent/parse-items', { text: request }, id);
+    if (!body) return null;
+
+    const items = body.items.map((s) => s.trim()).filter((s) => s.length > 0);
+    this.updateStep(id, {
+      status: 'done',
+      detail: items.length > 0 ? items.join(', ') : 'Товарів не розпізнано',
+    });
+
+    return items;
   }
 
   private async postJson<T>(url: string, body: unknown, stepId: string): Promise<T | null> {
