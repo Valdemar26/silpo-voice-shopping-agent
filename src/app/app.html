@@ -99,9 +99,23 @@
                 <span class="item-name">{{ item.name }}</span>
                 <span class="item-qty">× {{ item.quantity }}</span>
                 <span class="item-price">{{ item.price }} ₴</span>
+                <button
+                  type="button"
+                  class="remove-btn"
+                  data-cy="remove-item-btn"
+                  [attr.aria-label]="'Видалити ' + (item.name ?? 'товар')"
+                  [disabled]="agent.removingProductIds().has(item.productId)"
+                  (click)="agent.removeProduct(item.productId)"
+                >
+                  ✕
+                </button>
               </li>
             }
           </ul>
+        }
+
+        @if (agent.removeError(); as err) {
+          <p class="remove-error" data-cy="remove-error" role="alert">{{ err }}</p>
         }
 
         <div class="totals" data-cy="cart-totals">

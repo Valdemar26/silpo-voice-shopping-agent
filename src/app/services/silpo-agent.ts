@@ -56,6 +56,9 @@ export class SilpoAgentService {
   readonly result = signal<CartState | null>(null);
   readonly running = signal(false);
 
+  readonly removingProductIds = signal<ReadonlySet<string>>(new Set());
+  readonly removeError = signal<string | null>(null);
+
   async run(address: string, request: string): Promise<void> {
     if (this.running()) return;
 
@@ -92,6 +95,40 @@ export class SilpoAgentService {
       void this.tts.speak(this.buildSpokenSummary(latest));
     } finally {
       this.running.set(false);
+    }
+  }
+
+  // Removes a single product from the result panel's cart in place — no page
+  // reload, no re-running the whole search pipeline. Independent of the
+  // running/steps state above since it can happen well after a run finishes.
+  async removeProduct(productId: string): Promise<void> {
+    if (this.removingProductIds().has(productId)) return;
+
+    this.removingProductIds.update((ids) => new Set(ids).add(productId));
+    this.removeError.set(null);
+
+    try {
+      const response = await fetch('/api/mcp/cart/items', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productIds: [productId] }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        this.removeError.set(data?.error ?? `HTTP ${response.status}`);
+        return;
+      }
+
+      this.result.set({ shoppingCartId: data.shoppingCartId, cart: data.cart });
+    } catch (e) {
+      this.removeError.set(e instanceof Error ? e.message : 'Мережева помилка при видаленні товару');
+    } finally {
+      this.removingProductIds.update((ids) => {
+        const next = new Set(ids);
+        next.delete(productId);
+        return next;
+      });
     }
   }
 
