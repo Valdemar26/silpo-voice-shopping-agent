@@ -67,7 +67,12 @@ export default async function handler(req: Request): Promise<Response> {
       return json({ error: 'Не вдалося визначити адресу за координатами' }, 502);
     }
 
-    return json({ address: formatted }, 200);
+    // GPS accuracy means the nearest OSM point often isn't a mapped building
+    // node, so Nominatim frequently resolves only to street level — that
+    // street-only text later confuses silpo_find_address into returning
+    // several ambiguous candidates instead of the one real error it should
+    // be: "no house number". Surface it explicitly here instead.
+    return json({ address: formatted, houseNumberMissing: house.length === 0 }, 200);
   } catch (e) {
     return errorResponse(e);
   }

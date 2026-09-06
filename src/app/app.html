@@ -35,6 +35,10 @@
         <p class="geo-error" data-cy="geo-error" role="alert">{{ err }}</p>
       }
 
+      @if (geoWarning(); as warning) {
+        <p class="geo-warning" data-cy="geo-warning" role="status">{{ warning }}</p>
+      }
+
       <label for="request-input">Що потрібно</label>
       <div class="request-row">
         <textarea

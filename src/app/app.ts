@@ -27,6 +27,7 @@ export class AppComponent {
   protected readonly shareFeedback = signal<{ text: string; ok: boolean } | null>(null);
   protected readonly geoLocating = signal(false);
   protected readonly geoError = signal<string | null>(null);
+  protected readonly geoWarning = signal<string | null>(null);
 
   constructor() {
     // Keyed off speech.listening() rather than called inline in
@@ -129,6 +130,7 @@ export class AppComponent {
   // address field, still editable before running, same as the mic transcript.
   protected async useMyLocation(): Promise<void> {
     this.geoError.set(null);
+    this.geoWarning.set(null);
     this.geoLocating.set(true);
 
     try {
@@ -160,6 +162,13 @@ export class AppComponent {
       }
 
       this.form.controls.address.setValue(data.address);
+      // GPS often lands near, not exactly on, a mapped building — Nominatim
+      // then resolves only to street level. Handing that over silently would
+      // surface as a confusing "2 candidates" ambiguity from find_address
+      // much later; say it plainly now instead, while it's still editable.
+      if (data.houseNumberMissing) {
+        this.geoWarning.set('Вдалося визначити лише вулицю — номер будинку не розпізнано автоматично. Допишіть його вручну перед тим, як продовжити.');
+      }
     } catch (e) {
       this.geoError.set(e instanceof Error ? e.message : 'Мережева помилка при визначенні адреси.');
     } finally {
