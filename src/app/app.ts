@@ -2,7 +2,8 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { startWith } from 'rxjs';
-import { CartProduct, getOrderCostMin, SilpoAgentService } from './services/silpo-agent';
+import { buildShareText, CartProduct, getOrderCostMin, SilpoAgentService } from './services/silpo-agent';
+import { ShareService } from './services/share';
 import { SpeechRecognitionService, VoiceInputErrorReason } from './services/speech-recognition';
 
 @Component({
@@ -16,8 +17,10 @@ export class AppComponent {
   private readonly fb = inject(FormBuilder);
   protected readonly agent = inject(SilpoAgentService);
   protected readonly speech = inject(SpeechRecognitionService);
+  private readonly share = inject(ShareService);
 
   protected readonly voiceError = signal<string | null>(null);
+  protected readonly shareFeedback = signal<{ text: string; ok: boolean } | null>(null);
 
   protected readonly form = this.fb.nonNullable.group({
     address: ['', Validators.required],
@@ -71,6 +74,25 @@ export class AppComponent {
     if (!result || min === null) return 0;
     return Math.max(0, Math.ceil(min - result.cart.calculation.totalAfterDiscounts));
   });
+
+  // Doesn't touch the run/result flow at all — just hands the already-built
+  // cart off to whoever's paying. Native share sheet gives its own feedback
+  // on success, so only the clipboard fallback (and outright failure) need a
+  // message here.
+  protected async shareOrder(): Promise<void> {
+    const result = this.agent.result();
+    if (!result?.checkoutWebLink) return;
+
+    const outcome = await this.share.share(buildShareText(result));
+    if (outcome === 'copied') {
+      this.shareFeedback.set({ text: 'Скопійовано в буфер обміну.', ok: true });
+    } else if (outcome === 'failed') {
+      this.shareFeedback.set({ text: 'Не вдалося поділитися — спробуй ще раз.', ok: false });
+    } else {
+      return;
+    }
+    setTimeout(() => this.shareFeedback.set(null), 3000);
+  }
 
   protected run(): void {
     if (!this.canRun()) return;

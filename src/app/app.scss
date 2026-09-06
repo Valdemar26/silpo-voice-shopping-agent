@@ -274,9 +274,16 @@ main {
   }
 }
 
+.checkout-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+}
+
 .checkout-btn {
   display: inline-block;
-  margin-top: 16px;
   background: $success;
   color: #fff;
   text-decoration: none;
@@ -290,6 +297,29 @@ main {
 
   &:hover { background: #12691f; }
   &:active { transform: scale(0.98); }
+}
+
+.share-btn {
+  background: $surface;
+  color: $accent;
+  border: 1px solid $accent;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 13px 20px;
+  border-radius: 10px;
+  cursor: pointer;
+  outline-offset: 2px;
+
+  &:hover { background: #eef2ff; }
+  &:active { transform: scale(0.98); }
+}
+
+.share-feedback {
+  margin-top: 8px;
+  font-size: 13px;
+  color: $success;
+
+  &.error { color: $error; }
 }
 
 .checkout-pending {

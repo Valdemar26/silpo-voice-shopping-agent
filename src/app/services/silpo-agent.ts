@@ -325,6 +325,22 @@ export function getOrderCostMin(validations: CartValidation[]): number | null {
   return typeof context?.orderCostMin === 'number' ? context.orderCostMin : null;
 }
 
+// Short text for the "Поділитися замовленням" action — the person sharing
+// isn't necessarily the one paying, so it needs to stand alone with the
+// items, total, and a link, not just say "done, check the app".
+export function buildShareText(state: CartState): string {
+  const names = state.cart.shipments
+    .flatMap((s) => s.products)
+    .map((p) => p.name)
+    .filter((n): n is string => !!n);
+
+  const itemsList = names.length > 0 ? names.join(', ') : 'товари';
+  const total = Math.round(state.cart.calculation.totalAfterDiscounts);
+  const link = state.checkoutWebLink ? ` Оформити: ${state.checkoutWebLink}` : '';
+
+  return `Зібрав кошик у Сільпо: ${itemsList}, разом ${total}₴.${link}`;
+}
+
 function joinWithI(items: string[]): string {
   if (items.length === 1) return items[0];
   return `${items.slice(0, -1).join(', ')} і ${items[items.length - 1]}`;
