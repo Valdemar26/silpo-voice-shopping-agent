@@ -23,6 +23,7 @@
 - Кнопка геолокації біля адреси доставки зі зворотним геокодуванням (Nominatim) і попередженням про відсутній номер будинку.
 - Форсований `addQuantity: false` на двох рівнях, щоб повторне додавання товару не подвоювало кількість.
 - Автоматичне освіження простроченого timeslot перед пошуком товару (`requireCartContext`) — та сама логіка, що вже була в `ensureShoppingCart`.
+- Автоматичний retry на `SelfPickup` тієї ж адреси, коли `DeliveryHome`-філія не проходить перевірку живучості (`verifyBranchIsHealthy`) — тільки якщо `get_available_delivery_types` уже дає прямий `branchId` для `SelfPickup`; інакше (чи якщо `SelfPickup` теж «мертвий») кидається `DeadBranchError`, як і раніше. Кожна спроба й причина переходу видно в `trace`.
 - Заміна товару голосовою командою («замініть кеш'ю на щось без солі», «заміни хліб на цільнозерновий»): LLM-розбір (`api/agent/parse-items.ts`) додатково повертає `{type: "replace", target, query, quantity}` поруч зі звичайним `{type: "add", ...}`; `SilpoAgentService.replaceProductInCart` знаходить `target` у поточному кошику (найпростіший substring/word-overlap збіг, без fuzzy-логіки), видаляє й додає новий товар за `query`, з окремим trace-кроком і явною помилкою, якщо target не знайдено в кошику чи новий товар не знайдено пошуком.
 
 Все підтверджено живими прогонами на проді (`https://silpo-voice-shopping-agent.vercel.app`) з реальним акаунтом Сільпо.
@@ -44,8 +45,8 @@ Upstash Redis: mcp:client, mcp:tokens:default, mcp:session_id, mcp:oauth:state:<
 ## Що лишилось
 
 - Критерії вибору серед знайденого (наприклад «по акції») зараз просто відкидаються при розборі, а не застосовуються при виборі товару — обробка залишена на майбутнє (як і домовлялись).
-- Обробка `DeadBranchError` (мертва філія) — зараз лише падає з помилкою, нема автоматичного retry на іншу філію чи SelfPickup/NovaPoshta.
-- Створення кошика підтримує тільки `DeliveryHome` (є прямий `branchId`); SelfPickup/NovaPoshta (де `branchId=null`, потрібен `list_branches`) не реалізовано.
+- `DeadBranchError` на `DeliveryHome` тепер має один рівень retry: `setupCartForAddress` пробує `SelfPickup` для тієї ж адреси, якщо в `get_available_delivery_types` для неї вже є прямий `branchId`. Якщо такого варіанту нема (потрібен `list_branches`) або він теж «мертвий» — падає з помилкою, як і раніше.
+- Створення кошика напряму підтримує тільки `DeliveryHome` і (як fallback вище) `SelfPickup` із прямим `branchId`; NovaPoshta та SelfPickup без прямого `branchId` (де потрібен `list_branches`, щоб знайти найближчу філію) не реалізовано.
 
 ## На що звернути увагу
 

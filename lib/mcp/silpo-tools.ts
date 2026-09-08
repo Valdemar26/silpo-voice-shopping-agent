@@ -461,11 +461,54 @@ export interface CartSetupResult {
   trace: CartSetupTraceEntry[];
 }
 
+interface BranchAttempt {
+  branchId: string;
+  deliveryType: DeliveryType;
+  slot: TimeSlot;
+  healthy: boolean;
+  check: BranchHealthCheck;
+}
+
+/** Fetches a timeslot and runs the control-product health check for one branchId/deliveryType, logging both to `trace`. */
+async function attemptBranch(
+  branchId: string,
+  deliveryType: DeliveryType,
+  controlQuery: string,
+  trace: CartSetupTraceEntry[],
+): Promise<BranchAttempt> {
+  const slot = await findFirstAvailableSlot(branchId, deliveryType);
+  trace.push({ step: 'get_time_slots', detail: `[${deliveryType}] first available:true slot = ${slot.start} → ${slot.end}` });
+
+  const context: CartSearchContext = {
+    branchId,
+    deliveryType,
+    timeslotStart: slot.start,
+    timeslotEnd: slot.end,
+  };
+  const check = await verifyBranchIsHealthy(context, controlQuery);
+  trace.push({
+    step: 'verify_branch_health',
+    detail: check.healthy
+      ? `[${deliveryType}] OK: totalFound=${check.totalFound}, sample=${check.sampleProductNames.slice(0, 3).join(', ')}`
+      : `[${deliveryType}] FAILED: totalFound=${check.totalFound}`,
+  });
+
+  return { branchId, deliveryType, slot, healthy: check.healthy, check };
+}
+
 /**
  * End-to-end: free-text address -> resolved coordinates -> delivery option ->
  * a verified-healthy branch -> a real available timeslot -> a cart that
  * actually matches all three. Every decision is recorded in `trace` so it can
  * be inspected afterwards instead of only living in server logs.
+ *
+ * If the DeliveryHome branch fails the health check (DeadBranchError
+ * territory), this doesn't give up immediately — it looks for a SelfPickup
+ * option with its own direct branchId for the *same* address and tries that
+ * before failing. This only covers the case where get_available_delivery_types
+ * already hands back a direct branchId for SelfPickup; finding a pickup branch
+ * via list_branches when it doesn't is a separate, unimplemented step (see
+ * PROGRESS.md).
  */
 export async function setupCartForAddress(
   addressQuery: string,
@@ -490,34 +533,50 @@ export async function setupCartForAddress(
     trace.push({ step: 'get_available_delivery_types', detail: `no DeliveryHome option: ${JSON.stringify(options)}` });
     throw new NoDeliveryOptionError(options);
   }
-  const branchId = homeOption.branchId;
-  const deliveryType: DeliveryType = 'DeliveryHome';
   trace.push({
     step: 'get_available_delivery_types',
-    detail: `chose DeliveryHome, branchId=${branchId} (direct branchId, best match for grocery delivery)`,
+    detail: `chose DeliveryHome, branchId=${homeOption.branchId} (direct branchId, best match for grocery delivery)`,
   });
 
-  const slot = await findFirstAvailableSlot(branchId, deliveryType);
-  trace.push({ step: 'get_time_slots', detail: `first available:true slot = ${slot.start} → ${slot.end}` });
+  let chosen = await attemptBranch(homeOption.branchId, 'DeliveryHome', controlQuery, trace);
 
-  const context: CartSearchContext = {
-    branchId,
-    deliveryType,
-    timeslotStart: slot.start,
-    timeslotEnd: slot.end,
-  };
-  const health = await verifyBranchIsHealthy(context, controlQuery);
-  if (!health.healthy) {
-    trace.push({ step: 'verify_branch_health', detail: `FAILED: totalFound=${health.totalFound}` });
-    throw new DeadBranchError(branchId, health);
+  if (!chosen.healthy) {
+    const pickupOption = options.find((o) => o.deliveryType === 'SelfPickup' && o.branchId);
+    if (!pickupOption?.branchId) {
+      trace.push({
+        step: 'fallback_self_pickup',
+        detail:
+          `DeliveryHome branch ${chosen.branchId} is dead and no SelfPickup option with a direct branchId is ` +
+          'available for this address (would need list_branches, not implemented) — giving up',
+      });
+      throw new DeadBranchError(chosen.branchId, chosen.check);
+    }
+
+    trace.push({
+      step: 'fallback_self_pickup',
+      detail:
+        `DeliveryHome branch ${chosen.branchId} is dead (totalFound=${chosen.check.totalFound}) — trying ` +
+        `SelfPickup branch ${pickupOption.branchId} for the same address instead`,
+    });
+
+    const pickupAttempt = await attemptBranch(pickupOption.branchId, 'SelfPickup', controlQuery, trace);
+    if (!pickupAttempt.healthy) {
+      trace.push({
+        step: 'fallback_self_pickup',
+        detail: `SelfPickup branch ${pickupOption.branchId} is also dead (totalFound=${pickupAttempt.check.totalFound}) — giving up`,
+      });
+      throw new DeadBranchError(pickupOption.branchId, pickupAttempt.check);
+    }
+
+    trace.push({
+      step: 'fallback_self_pickup',
+      detail: `SelfPickup branch ${pickupOption.branchId} is healthy — using it instead of the dead DeliveryHome branch`,
+    });
+    chosen = pickupAttempt;
   }
-  trace.push({
-    step: 'verify_branch_health',
-    detail: `OK: totalFound=${health.totalFound}, sample=${health.sampleProductNames.slice(0, 3).join(', ')}`,
-  });
 
   const address: CreateCartAddress = {
-    addressType: 'house',
+    addressType: chosen.deliveryType === 'SelfPickup' ? 'self-pickup' : 'house',
     city: resolved.city,
     street: resolved.street,
     house: resolved.houseNumber,
@@ -526,10 +585,15 @@ export async function setupCartForAddress(
     longitude: resolved.longitude,
   };
 
-  const result = await ensureShoppingCart(address, branchId, deliveryType, { start: slot.start, end: slot.end });
+  const result = await ensureShoppingCart(address, chosen.branchId, chosen.deliveryType, {
+    start: chosen.slot.start,
+    end: chosen.slot.end,
+  });
   trace.push({
     step: 'ensure_shopping_cart',
-    detail: `shoppingCartId=${result.shoppingCartId}, timeslot=${result.cart.timeslot.start} → ${result.cart.timeslot.end}`,
+    detail:
+      `deliveryType=${chosen.deliveryType}, shoppingCartId=${result.shoppingCartId}, ` +
+      `timeslot=${result.cart.timeslot.start} → ${result.cart.timeslot.end}`,
   });
 
   return {
