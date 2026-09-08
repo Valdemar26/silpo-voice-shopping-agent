@@ -28,10 +28,9 @@ export interface CartValidation {
   context?: unknown;
 }
 
-interface ParsedItem {
-  query: string;
-  quantity: number;
-}
+type ParsedItem =
+  | { type: 'add'; query: string; quantity: number }
+  | { type: 'replace'; target: string; query: string; quantity: number };
 
 export interface SilpoCart {
   id: string;
@@ -91,6 +90,12 @@ export class SilpoAgentService {
 
       let latest = cartState;
       for (const item of queries) {
+        if (item.type === 'replace') {
+          const updated = await this.replaceProductInCart(latest, item.target, item.query, item.quantity);
+          if (updated) latest = updated;
+          continue;
+        }
+
         const product = await this.searchAndPickProduct(latest, item.query, item.quantity);
         if (!product) continue;
 
@@ -142,29 +147,113 @@ export class SilpoAgentService {
     this.removingProductIds.update((ids) => new Set(ids).add(productId));
     this.removeError.set(null);
 
+    const result = await this.deleteCartItemsRequest([productId]);
+    if ('error' in result) {
+      this.removeError.set(result.error);
+    } else {
+      this.result.set(result);
+    }
+
+    this.removingProductIds.update((ids) => {
+      const next = new Set(ids);
+      next.delete(productId);
+      return next;
+    });
+  }
+
+  // Shared by removeProduct() (standalone ✕ button, reports via
+  // removeError/result signals) and replaceProductInCart() below (mid-run,
+  // reports via its own trace step) — same DELETE call either way.
+  private async deleteCartItemsRequest(
+    productIds: string[],
+  ): Promise<CartState | { error: string }> {
     try {
       const response = await fetch('/api/mcp/cart/items', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productIds: [productId] }),
+        body: JSON.stringify({ productIds }),
       });
       const data = await response.json();
 
       if (!response.ok) {
-        this.removeError.set(data?.error ?? `HTTP ${response.status}`);
-        return;
+        return { error: data?.error ?? `HTTP ${response.status}` };
       }
 
-      this.result.set({ shoppingCartId: data.shoppingCartId, cart: data.cart, checkoutWebLink: data.checkoutWebLink });
+      return { shoppingCartId: data.shoppingCartId, cart: data.cart, checkoutWebLink: data.checkoutWebLink };
     } catch (e) {
-      this.removeError.set(e instanceof Error ? e.message : 'Мережева помилка при видаленні товару');
-    } finally {
-      this.removingProductIds.update((ids) => {
-        const next = new Set(ids);
-        next.delete(productId);
-        return next;
-      });
+      return { error: e instanceof Error ? e.message : 'Мережева помилка при видаленні товару' };
     }
+  }
+
+  // Finds the cart product a spoken "target" phrase (e.g. "кеш'ю") is meant
+  // to refer to. Deliberately the simplest possible match — a substring check
+  // against the product name, falling back to any shared significant word —
+  // not a "similarity"/fuzzy-match algorithm.
+  private findCartProductByTarget(cartState: CartState, target: string): CartProduct | null {
+    const products = cartState.cart.shipments.flatMap((s) => s.products);
+    const normalizedTarget = target.trim().toLowerCase();
+    if (normalizedTarget.length === 0) return null;
+
+    const substringMatch = products.find((p) => p.name?.toLowerCase().includes(normalizedTarget));
+    if (substringMatch) return substringMatch;
+
+    const targetWords = normalizedTarget.split(/\s+/).filter((w) => w.length > 2);
+    return products.find((p) => {
+      const name = p.name?.toLowerCase() ?? '';
+      return targetWords.some((w) => name.includes(w));
+    }) ?? null;
+  }
+
+  // Voice "replace" flow: find the existing product matching `target` in the
+  // cart, remove it, then search+add `query` in its place. Every outcome
+  // (target not found, delete failed, new product not found, add failed) gets
+  // its own explicit trace detail instead of silently skipping the item —
+  // same transparency principle as the rest of the pipeline.
+  private async replaceProductInCart(
+    cartState: CartState,
+    target: string,
+    query: string,
+    quantity: number,
+  ): Promise<CartState | null> {
+    const id = `replace-${target}-${query}`;
+    this.addStep({ id, label: `Заміна: «${target}» → пошук «${query}»`, status: 'running' });
+
+    const existing = this.findCartProductByTarget(cartState, target);
+    if (!existing) {
+      this.updateStep(id, { status: 'error', detail: `Не знайшов «${target}» у вашому кошику для заміни` });
+      return null;
+    }
+    const existingLabel = existing.name ?? target;
+
+    const removed = await this.deleteCartItemsRequest([existing.productId]);
+    if ('error' in removed) {
+      this.updateStep(id, { status: 'error', detail: `Не вдалося видалити «${existingLabel}»: ${removed.error}` });
+      return null;
+    }
+
+    const product = await this.searchAndPickProduct(removed, query, quantity);
+    if (!product) {
+      this.updateStep(id, {
+        status: 'error',
+        detail: `Видалив «${existingLabel}», але нічого не знайшов за запитом «${query}»`,
+      });
+      return removed;
+    }
+
+    const updated = await this.addProductToCart(removed.shoppingCartId, product);
+    if (!updated) {
+      this.updateStep(id, {
+        status: 'error',
+        detail: `Видалив «${existingLabel}», знайшов «${product.name}», але не вдалося додати в кошик`,
+      });
+      return removed;
+    }
+
+    this.updateStep(id, {
+      status: 'done',
+      detail: `«${existingLabel}» → «${formatQuantityLabel(product.name ?? query, product.quantity)}»`,
+    });
+    return updated;
   }
 
   // Short spoken recap of the final cart state, read out over TTS once the
@@ -207,13 +296,22 @@ export class SilpoAgentService {
     const body = await this.postJson<{ items: ParsedItem[] }>('/api/agent/parse-items', { text: request }, id);
     if (!body) return null;
 
-    const items = body.items
-      .map((i) => ({ query: i.query.trim(), quantity: Math.max(1, Math.round(i.quantity)) }))
-      .filter((i) => i.query.length > 0);
+    // Server already trims/validates; just drop anything with an empty query
+    // as a defensive floor against a malformed response slipping through.
+    const items = body.items.filter((i) => i.query.trim().length > 0);
 
     this.updateStep(id, {
       status: 'done',
-      detail: items.length > 0 ? items.map((i) => formatQuantityLabel(i.query, i.quantity)).join(', ') : 'Товарів не розпізнано',
+      detail:
+        items.length > 0
+          ? items
+              .map((i) =>
+                i.type === 'replace'
+                  ? `${i.target} → ${formatQuantityLabel(i.query, i.quantity)}`
+                  : formatQuantityLabel(i.query, i.quantity),
+              )
+              .join(', ')
+          : 'Товарів не розпізнано',
     });
 
     return items;
