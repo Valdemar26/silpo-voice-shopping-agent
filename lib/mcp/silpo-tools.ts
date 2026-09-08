@@ -87,6 +87,12 @@ export async function getShoppingCartById(shoppingCartId: string): Promise<Shopp
  * MCP tools say to source these from the user's existing cart rather than
  * asking for them separately. Creating a cart from scratch needs its own
  * address/branch/timeslot resolution flow and is out of scope here.
+ *
+ * A cart that's sat idle can carry a stale timeslot (validations[] has an
+ * error-level "timeslot" entry) — silpo_find_products_batch doesn't reject
+ * that, it just silently returns 0 results for every query. So this refreshes
+ * the timeslot (same logic ensureShoppingCart uses) before ever handing the
+ * context to a caller, instead of letting a search quietly come back empty.
  */
 export async function requireCartContext(): Promise<{ shoppingCartId: string; context: CartSearchContext }> {
   const mine = await getMyShoppingCart();
@@ -94,10 +100,14 @@ export async function requireCartContext(): Promise<{ shoppingCartId: string; co
     throw new Error('No shopping cart yet for this account — it must be created first');
   }
 
-  const { cart } = await getShoppingCartById(mine.shoppingCartId);
+  let { cart } = await getShoppingCartById(mine.shoppingCartId);
   const branchId = cart.shipments[0]?.branchId;
   if (!branchId || !cart.deliveryType || !cart.timeslot) {
     throw new Error('Cart is missing branch/delivery/timeslot information');
+  }
+
+  if (hasStaleTimeslot(cart)) {
+    ({ cart } = await refreshCartTimeslot(mine.shoppingCartId, cart, branchId, cart.deliveryType));
   }
 
   return {
@@ -362,6 +372,35 @@ export interface CreateCartAddress {
   longitude: number;
 }
 
+/** True when the cart's calculation carries an error-level "timeslot" validation. */
+function hasStaleTimeslot(cart: ShoppingCart['cart']): boolean {
+  return cart.calculation.validations.some((v) => v.level === 'error' && v.type === 'timeslot');
+}
+
+/**
+ * Finds a fresh available slot for branchId/deliveryType and applies it to the
+ * cart via update_shopping_cart, copying the existing address/shipments
+ * as-is — only the timeslot was the problem. Returns the re-fetched cart
+ * (refreshing the timeslot can also change checkoutWebLink/validations, so
+ * the whole object is re-fetched rather than patching just the timeslot).
+ */
+async function refreshCartTimeslot(
+  shoppingCartId: string,
+  cart: ShoppingCart['cart'],
+  branchId: string,
+  deliveryType: DeliveryType,
+): Promise<ShoppingCart> {
+  const freshSlot = await findFirstAvailableSlot(branchId, deliveryType);
+  await callMcpTool('silpo_update_shopping_cart', {
+    shoppingCartId,
+    deliveryType,
+    timeslot: { start: freshSlot.start, end: freshSlot.end },
+    address: cart.address,
+    shipments: cart.shipments.map((s) => ({ companyId: s.companyId, branchId: s.branchId })),
+  });
+  return getShoppingCartById(shoppingCartId);
+}
+
 /**
  * Creates the cart if none exists, or reconciles an existing one — but only
  * within the two checks the MCP server won't do for us:
@@ -402,20 +441,8 @@ export async function ensureShoppingCart(
     throw new CartAddressMismatchError(address, current.cart.address);
   }
 
-  const hasStaleTimeslot = current.cart.calculation.validations.some(
-    (v) => v.level === 'error' && v.type === 'timeslot',
-  );
-
-  if (hasStaleTimeslot) {
-    const freshSlot = await findFirstAvailableSlot(branchId, deliveryType);
-    await callMcpTool('silpo_update_shopping_cart', {
-      shoppingCartId: mine.shoppingCartId,
-      deliveryType,
-      timeslot: { start: freshSlot.start, end: freshSlot.end },
-      address: current.cart.address,
-      shipments: current.cart.shipments.map((s) => ({ companyId: s.companyId, branchId: s.branchId })),
-    });
-    current = await getShoppingCartById(mine.shoppingCartId);
+  if (hasStaleTimeslot(current.cart)) {
+    current = await refreshCartTimeslot(mine.shoppingCartId, current.cart, branchId, deliveryType);
   }
 
   return { shoppingCartId: mine.shoppingCartId, ...current };
