@@ -317,7 +317,12 @@ export class SilpoAgentService {
             companyId: product.companyId,
             branchId: product.branchId,
             quantity: product.quantity,
-            addQuantity: true,
+            // silpo_add_or_update_cart_products defaults addQuantity to true
+            // server-side (undocumented, confirmed via Silpo's Discord) — a
+            // repeat add for a product already in the cart would silently sum
+            // onto its existing quantity instead of setting the amount the
+            // user actually asked for in this utterance.
+            addQuantity: false,
           },
         ],
       },

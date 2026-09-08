@@ -161,7 +161,16 @@ export async function addOrUpdateCartProducts(
   products: CartProductInput[],
 ): Promise<unknown> {
   if (products.length === 0) throw new Error('products must be a non-empty array');
-  return callMcpTool('silpo_add_or_update_cart_products', { shoppingCartId, products });
+  // silpo_add_or_update_cart_products defaults addQuantity to true server-side
+  // (undocumented in the tool schema, confirmed via Silpo's Discord) — a repeat
+  // call for a product already in the cart would silently add to its existing
+  // quantity instead of setting it. Force false here unless a caller opts in,
+  // so every call site gets "set quantity" semantics without having to know
+  // about this undocumented default.
+  return callMcpTool('silpo_add_or_update_cart_products', {
+    shoppingCartId,
+    products: products.map((p) => ({ addQuantity: false, ...p })),
+  });
 }
 
 export async function removeCartProducts(shoppingCartId: string, productIds: string[]): Promise<unknown> {
