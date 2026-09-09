@@ -248,7 +248,11 @@ main {
   font-size: 13px;
 
   @media (prefers-reduced-motion: no-preference) {
-    animation: step-in 200ms ease-out;
+    // backwards: holds the "from" keyframe (invisible) during the stagger
+    // delay below, instead of sitting fully visible and then popping back to
+    // invisible right as the animation starts.
+    animation: step-in 200ms ease-out backwards;
+    animation-delay: var(--stagger-delay, 0ms);
   }
 
   .step-icon {
@@ -315,6 +319,42 @@ main {
   }
 
   .item-price { flex-shrink: 0; font-weight: 600; }
+}
+
+// Other candidates from a selector:"discount" search — muted/compact, tucked
+// under the main row, indented past the thumbnail so it reads as "belonging"
+// to that item.
+.cart-alternatives {
+  list-style: none;
+  margin-top: 4px;
+  padding-left: 62px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.alt-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-family: $mono;
+  font-size: 11px;
+  color: var(--text);
+  opacity: 0.5;
+  cursor: pointer;
+  text-align: left;
+
+  &:not(:disabled):hover { opacity: 0.8; }
+  &:disabled { cursor: default; }
+
+  .alt-checkbox { flex-shrink: 0; color: var(--muted); }
+  .alt-name { flex-shrink: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .alt-fill { flex: 1; min-width: 8px; border-bottom: 1px dotted var(--border); margin-bottom: 3px; }
+  .alt-price { flex-shrink: 0; font-weight: 600; }
 }
 
 // Fixed-size square; background shows through as the placeholder whenever

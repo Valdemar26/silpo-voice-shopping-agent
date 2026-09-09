@@ -36,7 +36,7 @@ type Selector = 'discount';
 // oldPrice/specialPrices confirmed against a live search response — oldPrice
 // is the pre-discount price (null when not discounted), specialPrices is a
 // list of quantity-break prices (e.g. "76.90 ₴ from 2 pcs", null otherwise).
-interface SearchProduct {
+export interface SearchProduct {
   id: string;
   name: string;
   price: number;
@@ -51,6 +51,16 @@ interface SearchProduct {
 type ParsedItem =
   | { type: 'add'; query: string; quantity: number; selector?: Selector }
   | { type: 'replace'; target: string; query: string; quantity: number; selector?: Selector };
+
+// One product actually added to the cart during a single run() call — used to
+// scope the spoken summary to just this run instead of the cart's whole
+// (possibly older) contents. price is the unit price as returned by search,
+// same semantics as CartProduct.price.
+interface AddedItem {
+  name: string;
+  quantity: number;
+  price: number;
+}
 
 export interface SilpoCart {
   id: string;
@@ -85,6 +95,17 @@ export class SilpoAgentService {
   readonly removingProductIds = signal<ReadonlySet<string>>(new Set());
   readonly removeError = signal<string | null>(null);
 
+  // Every candidate returned for a selector:"discount" search, keyed by each
+  // candidate's own id -> the whole group (same array reference for every
+  // member). Never reset between runs, same as the cart itself — a product
+  // added three runs ago should still show its alternatives today. Look-up
+  // is always by "whichever id is currently in the cart", so it keeps working
+  // after switchToAlternative() changes which member that is.
+  readonly discountAlternatives = signal<ReadonlyMap<string, SearchProduct[]>>(new Map());
+
+  readonly switchingProductIds = signal<ReadonlySet<string>>(new Set());
+  readonly switchError = signal<string | null>(null);
+
   async run(address: string, request: string): Promise<void> {
     if (this.running()) return;
 
@@ -95,6 +116,13 @@ export class SilpoAgentService {
     try {
       const cartState = await this.setupCart(address);
       if (!cartState) return;
+
+      // Captured before this run adds anything — totalAfterDiscounts always
+      // carries a delivery fee on top of the products themselves (99 ₴ even
+      // on a fully empty cart), so newItemsTotal vs grandTotal would almost
+      // never come out equal even on a genuinely first run; whether the cart
+      // had anything in it needs its own direct check instead.
+      const hadItemsBefore = cartState.cart.shipments.some((s) => s.products.length > 0);
 
       const queries = await this.parseSearchQueries(request);
       if (queries === null) return;
@@ -109,16 +137,18 @@ export class SilpoAgentService {
       }
 
       let latest = cartState;
+      const addedItems: AddedItem[] = [];
       for (const item of queries) {
         if (item.type === 'replace') {
-          const updated = await this.replaceProductInCart(
+          const { state, added } = await this.replaceProductInCart(
             latest,
             item.target,
             item.query,
             item.quantity,
             item.selector,
           );
-          if (updated) latest = updated;
+          if (state) latest = state;
+          if (added) addedItems.push(added);
           continue;
         }
 
@@ -126,12 +156,15 @@ export class SilpoAgentService {
         if (!product) continue;
 
         const updated = await this.addProductToCart(latest.shoppingCartId, product);
-        if (updated) latest = updated;
+        if (updated) {
+          latest = updated;
+          addedItems.push({ name: product.name ?? item.query, quantity: product.quantity, price: product.price ?? 0 });
+        }
       }
 
       this.result.set(latest);
       this.addCheckoutStatusStep(latest);
-      void this.tts.speak(this.buildSpokenSummary(latest));
+      void this.tts.speak(this.buildSpokenSummary(latest, addedItems, hadItemsBefore));
     } finally {
       this.running.set(false);
     }
@@ -187,6 +220,47 @@ export class SilpoAgentService {
     });
   }
 
+  // Swap one cart line for one of its stored discount alternatives — the
+  // exact candidate the user clicked, not a re-search. Same quiet
+  // delete-then-add pattern as removeProduct (no trace step, reports via its
+  // own switching/error signals), since this also happens well after run()
+  // finished.
+  async switchToAlternative(currentProductId: string, alternative: SearchProduct, quantity: number): Promise<void> {
+    if (this.switchingProductIds().has(currentProductId)) return;
+
+    this.switchingProductIds.update((ids) => new Set(ids).add(currentProductId));
+    this.switchError.set(null);
+
+    const removed = await this.deleteCartItemsRequest([currentProductId]);
+    if ('error' in removed) {
+      this.switchError.set(removed.error);
+    } else {
+      const added = await this.addCartItemsRequest(removed.shoppingCartId, [
+        {
+          productId: alternative.id,
+          companyId: alternative.companyId,
+          branchId: alternative.branchId,
+          quantity,
+          addQuantity: false,
+        },
+      ]);
+      if ('error' in added) {
+        this.switchError.set(added.error);
+        // The old line is already gone server-side — reflect that instead of
+        // silently leaving the panel showing a product no longer in the cart.
+        this.result.set(removed);
+      } else {
+        this.result.set(added);
+      }
+    }
+
+    this.switchingProductIds.update((ids) => {
+      const next = new Set(ids);
+      next.delete(currentProductId);
+      return next;
+    });
+  }
+
   // Shared by removeProduct() (standalone ✕ button, reports via
   // removeError/result signals) and replaceProductInCart() below (mid-run,
   // reports via its own trace step) — same DELETE call either way.
@@ -208,6 +282,31 @@ export class SilpoAgentService {
       return { shoppingCartId: data.shoppingCartId, cart: data.cart, checkoutWebLink: data.checkoutWebLink };
     } catch (e) {
       return { error: e instanceof Error ? e.message : 'Мережева помилка при видаленні товару' };
+    }
+  }
+
+  // Quiet counterpart to deleteCartItemsRequest, used by switchToAlternative
+  // — addProductToCart below does the same POST but also manages its own
+  // trace step, which a post-run interaction like this shouldn't add.
+  private async addCartItemsRequest(
+    shoppingCartId: string,
+    products: Array<{ productId: string; companyId: string; branchId: string; quantity: number; addQuantity?: boolean }>,
+  ): Promise<CartState | { error: string }> {
+    try {
+      const response = await fetch('/api/mcp/cart/items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ products }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        return { error: data?.error ?? `HTTP ${response.status}` };
+      }
+
+      return { shoppingCartId: data.shoppingCartId, cart: data.cart, checkoutWebLink: data.checkoutWebLink };
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : 'Мережева помилка при додаванні товару' };
     }
   }
 
@@ -241,21 +340,21 @@ export class SilpoAgentService {
     query: string,
     quantity: number,
     selector?: Selector,
-  ): Promise<CartState | null> {
+  ): Promise<{ state: CartState | null; added: AddedItem | null }> {
     const id = `replace-${target}-${query}`;
     this.addStep({ id, label: `Заміна: «${target}» → пошук «${query}»`, status: 'running' });
 
     const existing = this.findCartProductByTarget(cartState, target);
     if (!existing) {
       this.updateStep(id, { status: 'error', detail: `Не знайшов «${target}» у вашому кошику для заміни` });
-      return null;
+      return { state: null, added: null };
     }
     const existingLabel = existing.name ?? target;
 
     const removed = await this.deleteCartItemsRequest([existing.productId]);
     if ('error' in removed) {
       this.updateStep(id, { status: 'error', detail: `Не вдалося видалити «${existingLabel}»: ${removed.error}` });
-      return null;
+      return { state: null, added: null };
     }
 
     const product = await this.searchAndPickProduct(removed, query, quantity, selector);
@@ -264,7 +363,7 @@ export class SilpoAgentService {
         status: 'error',
         detail: `Видалив «${existingLabel}», але нічого не знайшов за запитом «${query}»`,
       });
-      return removed;
+      return { state: removed, added: null };
     }
 
     const updated = await this.addProductToCart(removed.shoppingCartId, product);
@@ -273,31 +372,45 @@ export class SilpoAgentService {
         status: 'error',
         detail: `Видалив «${existingLabel}», знайшов «${product.name}», але не вдалося додати в кошик`,
       });
-      return removed;
+      return { state: removed, added: null };
     }
 
     this.updateStep(id, {
       status: 'done',
       detail: `«${existingLabel}» → «${formatQuantityLabel(product.name ?? query, product.quantity)}»`,
     });
-    return updated;
+    return {
+      state: updated,
+      added: { name: product.name ?? query, quantity: product.quantity, price: product.price ?? 0 },
+    };
   }
 
-  // Short spoken recap of the final cart state, read out over TTS once the
-  // run finishes. Kept separate from the visible result panel, which always
-  // renders regardless of whether the voice call succeeds.
-  private buildSpokenSummary(state: CartState): string {
-    const names = state.cart.shipments
-      .flatMap((s) => s.products)
-      .map((p) => p.name)
-      .filter((n): n is string => !!n);
-
-    if (names.length === 0) {
-      return 'Нічого не знайшов. Кошик лишився порожнім.';
+  // Short spoken recap read out over TTS once the run finishes — scoped to
+  // just what THIS run() added, not the cart's whole (possibly older)
+  // contents, so a second run doesn't re-announce items added in a previous
+  // one. Kept separate from the visible result panel, which always shows the
+  // full current cart regardless of what this run touched.
+  private buildSpokenSummary(state: CartState, addedItems: AddedItem[], hadItemsBefore: boolean): string {
+    if (addedItems.length === 0) {
+      const cartHasItems = state.cart.shipments.some((s) => s.products.length > 0);
+      return cartHasItems ? 'Нічого нового не додав.' : 'Нічого не знайшов. Кошик лишився порожнім.';
     }
 
-    const total = Math.round(state.cart.calculation.totalAfterDiscounts);
-    return `Знайшов ${joinWithI(names)}. Разом ${total} ${pluralizeHryvnia(total)}. Додав у кошик.`;
+    const names = addedItems.map((i) => i.name);
+    const grandTotal = Math.round(state.cart.calculation.totalAfterDiscounts);
+
+    // Only worth splitting into "new items / grand total" when the cart
+    // wasn't empty going into this run — otherwise the two numbers are the
+    // same order (the whole cart IS what was just added, delivery fee aside)
+    // and a second sentence just repeats itself.
+    if (hadItemsBefore) {
+      const newItemsTotal = Math.round(addedItems.reduce((sum, i) => sum + i.price * i.quantity, 0));
+      return (
+        `Додав ${joinWithI(names)}, разом ${newItemsTotal} ${pluralizeHryvnia(newItemsTotal)} за нові позиції. ` +
+        `Загальна сума кошика — ${grandTotal} ${pluralizeHryvnia(grandTotal)}.`
+      );
+    }
+    return `Додав ${joinWithI(names)}, разом ${grandTotal} ${pluralizeHryvnia(grandTotal)}.`;
   }
 
   private addStep(step: AgentStep): void {
@@ -414,6 +527,11 @@ export class SilpoAgentService {
     const found = pickBySelector(candidates, selector);
     this.updateStep(id, { status: 'done', detail: describePick(candidates[0], found, selector) });
 
+    // Only for selector-driven picks — a plain "add" never shows alternatives.
+    if (selector === 'discount') {
+      this.registerDiscountAlternatives(candidates);
+    }
+
     return {
       productId: found.id,
       companyId: found.companyId,
@@ -424,6 +542,19 @@ export class SilpoAgentService {
       price: found.price,
       stock: found.stock,
     };
+  }
+
+  // Every candidate is registered — including the one that was actually
+  // picked — pointing at the same array. That makes look-up by "whichever id
+  // is currently in the cart" work no matter which member that ends up being,
+  // now or after a later switchToAlternative() swap.
+  private registerDiscountAlternatives(candidates: SearchProduct[]): void {
+    if (candidates.length <= 1) return;
+    this.discountAlternatives.update((map) => {
+      const next = new Map(map);
+      for (const c of candidates) next.set(c.id, candidates);
+      return next;
+    });
   }
 
   private async addProductToCart(shoppingCartId: string, product: CartProduct): Promise<CartState | null> {
@@ -485,17 +616,27 @@ export type CheckoutStatus =
 // verified that checkoutWebLink stays usable through it.
 export function getCheckoutStatus(state: CartState): CheckoutStatus {
   const validations = state.cart.calculation.validations;
+  const total = state.cart.calculation.totalAfterDiscounts;
 
+  // Strictly "<", not "<=" — Silpo can still carry an error-level
+  // order.cost.min validation at the exact boundary (total === orderCostMin),
+  // which used to read as "below-minimum" and show "Додайте ще 0 ₴" instead
+  // of the checkout button. Equality means the minimum is satisfied.
   const orderCostMin = getOrderCostMin(validations);
-  if (orderCostMin !== null) {
-    const total = state.cart.calculation.totalAfterDiscounts;
-    const remaining = Math.max(0, Math.ceil(orderCostMin - total));
+  if (orderCostMin !== null && total < orderCostMin) {
+    const remaining = Math.ceil(orderCostMin - total);
     const percent = orderCostMin > 0 ? Math.min(100, Math.max(0, (total / orderCostMin) * 100)) : 0;
     return { kind: 'below-minimum', remaining, percent };
   }
 
   const hasAdultIssue = validations.some((v) => v.message === 'order.adult.is_not_confirmed');
-  const hasOtherError = validations.some((v) => v.level === 'error' && v.message !== 'order.adult.is_not_confirmed');
+  // order.cost.min is excluded here too: once the strict check above has
+  // decided the minimum is actually satisfied, a stale/boundary copy of that
+  // same validation must not turn around and block checkout as "some other
+  // error" instead.
+  const hasOtherError = validations.some(
+    (v) => v.level === 'error' && v.message !== 'order.adult.is_not_confirmed' && v.message !== 'order.cost.min',
+  );
 
   if (state.checkoutWebLink && !hasOtherError) {
     return hasAdultIssue ? { kind: 'adult-confirmation-required' } : { kind: 'ready' };

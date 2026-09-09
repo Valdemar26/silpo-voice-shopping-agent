@@ -5,7 +5,7 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { startWith } from 'rxjs';
 import { GeolocationService } from './services/geolocation';
 import { MicLevelService } from './services/mic-level';
-import { buildShareText, CartProduct, getCheckoutStatus, SilpoAgentService } from './services/silpo-agent';
+import { buildShareText, CartProduct, getCheckoutStatus, SearchProduct, SilpoAgentService } from './services/silpo-agent';
 import { ShareService } from './services/share';
 import { SpeechRecognitionService, VoiceInputErrorReason } from './services/speech-recognition';
 
@@ -80,6 +80,18 @@ export class AppComponent {
   protected readonly cartItems = computed<CartProduct[]>(
     () => this.agent.result()?.cart.shipments.flatMap((s) => s.products) ?? [],
   );
+
+  // Only items originally added with selector: "discount" have a stored
+  // candidate group at all — a plain "add" never shows alternatives.
+  protected getAlternatives(item: CartProduct): SearchProduct[] {
+    const group = this.agent.discountAlternatives().get(item.productId);
+    if (!group) return [];
+    return group.filter((c) => c.id !== item.productId).slice(0, 3);
+  }
+
+  protected switchAlternative(item: CartProduct, alternative: SearchProduct): void {
+    void this.agent.switchToAlternative(item.productId, alternative, item.quantity);
+  }
 
   // Drives which of the checkout button / "add ₴N more" / adult-confirmation
   // note / blocked message the result panel shows. Reactive to

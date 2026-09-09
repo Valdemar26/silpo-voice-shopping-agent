@@ -100,8 +100,12 @@
       <section class="steps-panel" data-cy="steps-panel" aria-live="polite" [attr.aria-busy]="agent.running()">
         <h2>Кроки виконання</h2>
         <ol class="step-list">
-          @for (step of agent.steps(); track step.id) {
-            <li [class]="'step status-' + step.status" data-cy="step">
+          @for (step of agent.steps(); track step.id; let i = $index) {
+            <li
+              [class]="'step status-' + step.status"
+              [style.--stagger-delay]="(i * 100) + 'ms'"
+              data-cy="step"
+            >
               <span class="step-icon" aria-hidden="true">
                 @switch (step.status) {
                   @case ('running') { [ ] }
@@ -130,38 +134,68 @@
         } @else {
           <ul class="cart-items" data-cy="cart-items">
             @for (item of cartItems(); track item.productId) {
-              <li class="cart-item" data-cy="cart-item">
-                <span class="item-thumb-wrap">
-                  @if (item.image) {
-                    <img
-                      class="item-thumb"
-                      [ngSrc]="item.image"
-                      width="52"
-                      height="52"
-                      [alt]="item.name ?? 'Товар'"
-                      (error)="$any($event.target).style.display = 'none'"
-                    />
+              <li class="cart-item-block" data-cy="cart-item">
+                <div class="cart-item">
+                  <span class="item-thumb-wrap">
+                    @if (item.image) {
+                      <img
+                        class="item-thumb"
+                        [ngSrc]="item.image"
+                        width="52"
+                        height="52"
+                        [alt]="item.name ?? 'Товар'"
+                        (error)="$any($event.target).style.display = 'none'"
+                      />
+                    }
+                  </span>
+                  <span class="item-details">
+                    <span class="item-name">{{ item.name }}</span>
+                    <span class="item-qty">× {{ item.quantity }}</span>
+                    <span class="item-fill" aria-hidden="true"></span>
+                  </span>
+                  <span class="item-price">{{ item.price }} ₴</span>
+                  <button
+                    type="button"
+                    class="remove-btn"
+                    data-cy="remove-item-btn"
+                    [attr.aria-label]="'Видалити ' + (item.name ?? 'товар')"
+                    [disabled]="agent.removingProductIds().has(item.productId)"
+                    (click)="agent.removeProduct(item.productId)"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                @if (getAlternatives(item); as alternatives) {
+                  @if (alternatives.length > 0) {
+                    <ul class="cart-alternatives" data-cy="cart-alternatives">
+                      @for (alt of alternatives; track alt.id) {
+                        <li>
+                          <button
+                            type="button"
+                            class="alt-row"
+                            data-cy="cart-alt"
+                            [disabled]="agent.switchingProductIds().has(item.productId)"
+                            [attr.aria-label]="'Замінити на ' + alt.name"
+                            (click)="switchAlternative(item, alt)"
+                          >
+                            <span class="alt-checkbox" aria-hidden="true">[ ]</span>
+                            <span class="alt-name">{{ alt.name }}</span>
+                            <span class="alt-fill" aria-hidden="true"></span>
+                            <span class="alt-price">{{ alt.price }} ₴</span>
+                          </button>
+                        </li>
+                      }
+                    </ul>
                   }
-                </span>
-                <span class="item-details">
-                  <span class="item-name">{{ item.name }}</span>
-                  <span class="item-qty">× {{ item.quantity }}</span>
-                  <span class="item-fill" aria-hidden="true"></span>
-                </span>
-                <span class="item-price">{{ item.price }} ₴</span>
-                <button
-                  type="button"
-                  class="remove-btn"
-                  data-cy="remove-item-btn"
-                  [attr.aria-label]="'Видалити ' + (item.name ?? 'товар')"
-                  [disabled]="agent.removingProductIds().has(item.productId)"
-                  (click)="agent.removeProduct(item.productId)"
-                >
-                  ✕
-                </button>
+                }
               </li>
             }
           </ul>
+        }
+
+        @if (agent.switchError(); as err) {
+          <p class="remove-error" data-cy="switch-error" role="alert">{{ err }}</p>
         }
 
         @if (agent.removeError(); as err) {
