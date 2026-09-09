@@ -478,6 +478,26 @@ export class SilpoAgentService {
     }
   }
 
+  // Cheap LLM sanity check (api/agent/check-relevance.ts) that a picked
+  // candidate is actually the type of product asked for. Deliberately fails
+  // open (returns true) on any network/server error — this is a safety net
+  // layered on top of the real search, not a hard gate, so a flaky call here
+  // must never be the reason nothing ever gets added.
+  private async checkRelevance(query: string, candidateName: string): Promise<boolean> {
+    try {
+      const response = await fetch('/api/agent/check-relevance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, candidateName }),
+      });
+      if (!response.ok) return true;
+      const data = await response.json();
+      return typeof data.relevant === 'boolean' ? data.relevant : true;
+    } catch {
+      return true;
+    }
+  }
+
   private async setupCart(address: string): Promise<CartState | null> {
     const id = 'setup-cart';
     this.addStep({ id, label: `Налаштування кошика для адреси «${address}»`, status: 'running' });
@@ -525,6 +545,21 @@ export class SilpoAgentService {
     }
 
     const found = pickBySelector(candidates, selector);
+
+    // Safety net independent of any selector — find_products_batch's own
+    // relevance can be poor (e.g. "гречка" surfacing a candy bar whose
+    // *flavor* happens to be named "гречка-вишня" as its top hit). Checked on
+    // whichever candidate was actually picked, not just candidates[0], so it
+    // also covers the discount fallback path. Better an explicit "не
+    // відповідає запиту" than a silently wrong product in the cart.
+    if (!(await this.checkRelevance(query, found.name))) {
+      this.updateStep(id, {
+        status: 'error',
+        detail: `«${query}» — знайдені результати не відповідають запиту, товар не додано`,
+      });
+      return null;
+    }
+
     this.updateStep(id, { status: 'done', detail: describePick(candidates[0], found, selector) });
 
     // Only for selector-driven picks — a plain "add" never shows alternatives.
