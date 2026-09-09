@@ -28,9 +28,29 @@ export interface CartValidation {
   context?: unknown;
 }
 
+// Only 'discount' is implemented — see searchAndPickProduct/pickBySelector
+// below. Other criteria the LLM might recognize are still dropped there.
+type Selector = 'discount';
+
+// Shape returned by silpo_find_products_batch (via /api/mcp/products/search).
+// oldPrice/specialPrices confirmed against a live search response — oldPrice
+// is the pre-discount price (null when not discounted), specialPrices is a
+// list of quantity-break prices (e.g. "76.90 ₴ from 2 pcs", null otherwise).
+interface SearchProduct {
+  id: string;
+  name: string;
+  price: number;
+  stock: number;
+  image: string;
+  companyId: string;
+  branchId: string;
+  oldPrice?: number | null;
+  specialPrices?: Array<{ price: number; count: number; type: string }> | null;
+}
+
 type ParsedItem =
-  | { type: 'add'; query: string; quantity: number }
-  | { type: 'replace'; target: string; query: string; quantity: number };
+  | { type: 'add'; query: string; quantity: number; selector?: Selector }
+  | { type: 'replace'; target: string; query: string; quantity: number; selector?: Selector };
 
 export interface SilpoCart {
   id: string;
@@ -91,12 +111,18 @@ export class SilpoAgentService {
       let latest = cartState;
       for (const item of queries) {
         if (item.type === 'replace') {
-          const updated = await this.replaceProductInCart(latest, item.target, item.query, item.quantity);
+          const updated = await this.replaceProductInCart(
+            latest,
+            item.target,
+            item.query,
+            item.quantity,
+            item.selector,
+          );
           if (updated) latest = updated;
           continue;
         }
 
-        const product = await this.searchAndPickProduct(latest, item.query, item.quantity);
+        const product = await this.searchAndPickProduct(latest, item.query, item.quantity, item.selector);
         if (!product) continue;
 
         const updated = await this.addProductToCart(latest.shoppingCartId, product);
@@ -214,6 +240,7 @@ export class SilpoAgentService {
     target: string,
     query: string,
     quantity: number,
+    selector?: Selector,
   ): Promise<CartState | null> {
     const id = `replace-${target}-${query}`;
     this.addStep({ id, label: `Заміна: «${target}» → пошук «${query}»`, status: 'running' });
@@ -231,7 +258,7 @@ export class SilpoAgentService {
       return null;
     }
 
-    const product = await this.searchAndPickProduct(removed, query, quantity);
+    const product = await this.searchAndPickProduct(removed, query, quantity, selector);
     if (!product) {
       this.updateStep(id, {
         status: 'error',
@@ -307,8 +334,8 @@ export class SilpoAgentService {
           ? items
               .map((i) =>
                 i.type === 'replace'
-                  ? `${i.target} → ${formatQuantityLabel(i.query, i.quantity)}`
-                  : formatQuantityLabel(i.query, i.quantity),
+                  ? `${i.target} → ${formatItemLabel(i.query, i.quantity, i.selector)}`
+                  : formatItemLabel(i.query, i.quantity, i.selector),
               )
               .join(', ')
           : 'Товарів не розпізнано',
@@ -361,19 +388,16 @@ export class SilpoAgentService {
     return { shoppingCartId: body.shoppingCartId, cart: body.cart, checkoutWebLink: body.checkoutWebLink };
   }
 
-  private async searchAndPickProduct(cartState: CartState, query: string, quantity: number): Promise<CartProduct | null> {
+  private async searchAndPickProduct(
+    cartState: CartState,
+    query: string,
+    quantity: number,
+    selector?: Selector,
+  ): Promise<CartProduct | null> {
     const id = `search-${query}`;
-    this.addStep({ id, label: `Пошук: «${query}»`, status: 'running' });
+    const criterionSuffix = selector === 'discount' ? ' (критерій: акція)' : '';
+    this.addStep({ id, label: `Пошук: «${query}»${criterionSuffix}`, status: 'running' });
 
-    interface SearchProduct {
-      id: string;
-      name: string;
-      price: number;
-      stock: number;
-      image: string;
-      companyId: string;
-      branchId: string;
-    }
     const body = await this.postJson<{ queries: Array<{ products: SearchProduct[] }> }>(
       '/api/mcp/products/search',
       { products: [query], limit: 5 },
@@ -381,13 +405,14 @@ export class SilpoAgentService {
     );
     if (!body) return null;
 
-    const found = body.queries[0]?.products[0];
-    if (!found) {
+    const candidates = body.queries[0]?.products ?? [];
+    if (candidates.length === 0) {
       this.updateStep(id, { status: 'error', detail: 'Нічого не знайдено' });
       return null;
     }
 
-    this.updateStep(id, { status: 'done', detail: `${found.name} — ${found.price} ₴ (залишок: ${found.stock})` });
+    const found = pickBySelector(candidates, selector);
+    this.updateStep(id, { status: 'done', detail: describePick(candidates[0], found, selector) });
 
     return {
       productId: found.id,
@@ -499,6 +524,62 @@ export function buildShareText(state: CartState): string {
 // common single-item case — avoids "× 1" noise on every trace line.
 function formatQuantityLabel(name: string, quantity: number): string {
   return quantity !== 1 ? `${name} × ${quantity}` : name;
+}
+
+// Same as formatQuantityLabel, plus a "(по акції)" tag when a selector was
+// captured — used in the parse-step trace summary.
+function formatItemLabel(query: string, quantity: number, selector?: Selector): string {
+  const base = formatQuantityLabel(query, quantity);
+  return selector === 'discount' ? `${base} (по акції)` : base;
+}
+
+// True when a candidate is actually on sale: either marked down from an
+// oldPrice, or carrying a quantity-break specialPrices entry.
+function isOnDiscount(p: SearchProduct): boolean {
+  if (typeof p.oldPrice === 'number' && p.oldPrice > p.price) return true;
+  return !!p.specialPrices && p.specialPrices.length > 0;
+}
+
+// selector: "discount" picks the first candidate that's actually on sale,
+// falling back to the plain first result (and noting the miss in the trace
+// via describePick) when none of the returned candidates qualify.
+function pickBySelector(candidates: SearchProduct[], selector?: Selector): SearchProduct {
+  if (selector === 'discount') {
+    const discounted = candidates.find(isOnDiscount);
+    if (discounted) return discounted;
+  }
+  return candidates[0];
+}
+
+function formatDiscount(p: SearchProduct): string {
+  if (typeof p.oldPrice === 'number' && p.oldPrice > p.price) {
+    return `було ${p.oldPrice} ₴, стало ${p.price} ₴`;
+  }
+  const special = p.specialPrices?.[0];
+  if (special) {
+    return `знижка від ${special.count} шт.: ${special.price} ₴`;
+  }
+  return `${p.price} ₴`;
+}
+
+function describeProduct(p: SearchProduct): string {
+  return `${p.name} — ${p.price} ₴ (залишок: ${p.stock})`;
+}
+
+// Trace detail for a search step: plain description when there's no
+// selector, otherwise reports whether the "discount" criterion was actually
+// satisfied among the returned candidates or the plain first result was used
+// instead.
+function describePick(first: SearchProduct, picked: SearchProduct, selector?: Selector): string {
+  if (selector !== 'discount') return describeProduct(picked);
+
+  if (picked !== first) {
+    return `знайдено на знижці: ${picked.name}, ${formatDiscount(picked)}`;
+  }
+  if (isOnDiscount(picked)) {
+    return `знайдено на знижці: ${picked.name}, ${formatDiscount(picked)}`;
+  }
+  return `критерій «акція» не задоволено — взято перший знайдений товар: ${describeProduct(picked)}`;
 }
 
 function joinWithI(items: string[]): string {
