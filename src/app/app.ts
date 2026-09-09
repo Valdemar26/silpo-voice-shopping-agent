@@ -5,7 +5,14 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { startWith } from 'rxjs';
 import { GeolocationService } from './services/geolocation';
 import { MicLevelService } from './services/mic-level';
-import { buildShareText, CartProduct, getCheckoutStatus, SearchProduct, SilpoAgentService } from './services/silpo-agent';
+import {
+  buildShareText,
+  CartProduct,
+  getCheckoutStatus,
+  SearchProduct,
+  SilpoAgentService,
+  StockExceededItem,
+} from './services/silpo-agent';
 import { ShareService } from './services/share';
 import { SpeechRecognitionService, VoiceInputErrorReason } from './services/speech-recognition';
 
@@ -113,6 +120,13 @@ export class AppComponent {
   protected readonly needsAdultConfirmation = computed(() => this.checkoutStatus()?.kind === 'adult-confirmation-required');
 
   protected readonly isBelowMinimum = computed(() => this.checkoutStatus()?.kind === 'below-minimum');
+
+  protected readonly isStockExceeded = computed(() => this.checkoutStatus()?.kind === 'stock-exceeded');
+
+  protected readonly stockExceededItems = computed<StockExceededItem[]>(() => {
+    const status = this.checkoutStatus();
+    return status?.kind === 'stock-exceeded' ? status.items : [];
+  });
 
   protected readonly amountRemainingForCheckout = computed<number>(() => {
     const status = this.checkoutStatus();

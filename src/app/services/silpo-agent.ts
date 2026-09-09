@@ -191,6 +191,18 @@ export class SilpoAgentService {
           status: 'done',
         });
         return;
+      case 'stock-exceeded': {
+        const detail = status.items
+          .map((i) => `«${i.name}»: у кошику ${i.quantity}, у наявності лише ${i.stock}`)
+          .join('; ');
+        this.addStep({
+          id,
+          label: 'Кошик поки недоступний до оформлення — недостатньо товару на складі',
+          status: 'error',
+          detail,
+        });
+        return;
+      }
       case 'blocked':
         this.addStep({ id, label: 'Кошик поки недоступний до оформлення', status: 'done' });
         return;
@@ -632,11 +644,46 @@ function getOrderCostMin(validations: CartValidation[]): number | null {
   return typeof context?.orderCostMin === 'number' ? context.orderCostMin : null;
 }
 
+// One line item that's over the branch's actual stock — surfaced by
+// product.offer.stock.max. Confirmed live: context is
+// {productId, markdownGroup, stock} — no mention of alcohol/age anywhere, so
+// despite first showing up on a beer line (×3 requested, stock: 2) this is a
+// plain "not enough in stock", not an alcohol-specific purchase limit.
+// markdownGroup isn't surfaced — it's about which discount bucket the offer
+// belongs to, not relevant to explaining the block to the person.
+export interface StockExceededItem {
+  productId: string;
+  name: string;
+  stock: number;
+  quantity: number;
+}
+
 export type CheckoutStatus =
   | { kind: 'ready' }
   | { kind: 'below-minimum'; remaining: number; percent: number }
   | { kind: 'adult-confirmation-required' }
+  | { kind: 'stock-exceeded'; items: StockExceededItem[] }
   | { kind: 'blocked' };
+
+// Cross-references each product.offer.stock.max validation's context
+// (productId + stock) against the cart's own product list to recover the
+// name and the quantity actually requested — the validation itself carries
+// neither.
+function getStockExceededItems(state: CartState): StockExceededItem[] {
+  const products = state.cart.shipments.flatMap((s) => s.products);
+
+  return state.cart.calculation.validations
+    .filter((v) => v.level === 'error' && v.message === 'product.offer.stock.max')
+    .map((v): StockExceededItem | null => {
+      const context = v.context as { productId?: unknown; stock?: unknown } | undefined;
+      const productId = typeof context?.productId === 'string' ? context.productId : null;
+      const stock = typeof context?.stock === 'number' ? context.stock : null;
+      const product = productId ? products.find((p) => p.productId === productId) : undefined;
+      if (!productId || stock === null || !product) return null;
+      return { productId, name: product.name ?? 'товар', stock, quantity: product.quantity };
+    })
+    .filter((item): item is StockExceededItem => item !== null);
+}
 
 // Single source of truth for "can this cart be checked out right now", used
 // by both the trace step and the result panel — they'd drifted apart before:
@@ -669,11 +716,26 @@ export function getCheckoutStatus(state: CartState): CheckoutStatus {
   // decided the minimum is actually satisfied, a stale/boundary copy of that
   // same validation must not turn around and block checkout as "some other
   // error" instead.
-  const hasOtherError = validations.some(
+  const otherErrors = validations.filter(
     (v) => v.level === 'error' && v.message !== 'order.adult.is_not_confirmed' && v.message !== 'order.cost.min',
   );
 
-  if (state.checkoutWebLink && !hasOtherError) {
+  if (otherErrors.length > 0) {
+    // Only claim "it's a stock problem" when stock.max is the ONLY kind of
+    // other error present — mixed with some other, still-unrecognized error
+    // (e.g. a stale timeslot), that would be telling half the story, so fall
+    // through to the generic blocked message instead.
+    const allStockExceeded = otherErrors.every((v) => v.message === 'product.offer.stock.max');
+    if (allStockExceeded) {
+      const items = getStockExceededItems(state);
+      if (items.length > 0) {
+        return { kind: 'stock-exceeded', items };
+      }
+    }
+    return { kind: 'blocked' };
+  }
+
+  if (state.checkoutWebLink) {
     return hasAdultIssue ? { kind: 'adult-confirmation-required' } : { kind: 'ready' };
   }
 

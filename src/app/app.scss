@@ -477,6 +477,22 @@ main {
   .checkout-pending { margin-top: 0; margin-bottom: 8px; }
 }
 
+.stock-exceeded {
+  margin-top: 16px;
+
+  .checkout-pending { margin-top: 0; margin-bottom: 8px; font-style: normal; }
+}
+
+.stock-exceeded-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: $mono;
+  font-size: 13px;
+  color: var(--danger);
+}
+
 // Thin rule, not a pill.
 .progress-track {
   width: 100%;

@@ -250,6 +250,15 @@
               <div class="progress-fill" [style.width.%]="minimumOrderProgress()"></div>
             </div>
           </div>
+        } @else if (isStockExceeded()) {
+          <div class="stock-exceeded" data-cy="checkout-pending">
+            <p class="checkout-pending">Недостатньо товару на складі — зменшіть кількість, щоб оформити замовлення:</p>
+            <ul class="stock-exceeded-list">
+              @for (item of stockExceededItems(); track item.productId) {
+                <li>«{{ item.name }}»: у кошику {{ item.quantity }}, у наявності лише {{ item.stock }}</li>
+              }
+            </ul>
+          </div>
         } @else {
           <p class="checkout-pending" data-cy="checkout-pending">Кошик поки недоступний до оформлення</p>
         }
