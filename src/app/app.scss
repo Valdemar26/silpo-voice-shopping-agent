@@ -1,45 +1,56 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-$bg: #f5f6f8;
-$surface: #ffffff;
-$border: #d8dce3;
-$text: #1a1d23;
-$text-muted: #5b6270;
-$accent: #4f46e5;
-$error: #b91c1c;
-$error-bg: #fef2f2;
-$success: #15803d;
+$mono: ui-monospace, 'JetBrains Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
 
 .app {
+  --bg: #FAF7F0;
+  --text: #1C1B19;
+  --accent: #2D5C3E;
+  --danger: #B23A2E;
+  --border: #E5DFD3;
+  --muted: #8A8577;
+
   min-height: 100vh;
-  background: $bg;
-  color: $text;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif;
 }
 
 header {
-  padding: 20px 24px;
-  background: $surface;
-  border-bottom: 1px solid $border;
+  padding: 24px;
+  border-bottom: 1px solid var(--border);
 
-  h1 { font-size: 20px; font-weight: 600; }
-  .subtitle { margin-top: 4px; font-size: 13px; color: $text-muted; }
+  h1 { font-size: 19px; font-weight: 600; }
+  .subtitle { margin-top: 4px; font-size: 13px; color: var(--muted); }
 }
 
 main {
   max-width: 640px;
   margin: 0 auto;
-  padding: 24px 16px 48px;
+  padding: 32px 16px 56px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 32px;
+}
+
+// Shared solid-accent style for the three primary actions
+// (Виконати / Оформити замовлення / Поділитися).
+.btn-solid {
+  display: inline-block;
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  border-radius: 3px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+
+  &:not(:disabled):hover { background: color-mix(in srgb, var(--accent) 85%, black); }
+  &:disabled { opacity: 0.5; cursor: default; }
 }
 
 .input-panel {
-  background: $surface;
-  border: 1px solid $border;
-  border-radius: 10px;
-  padding: 20px;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -47,23 +58,23 @@ main {
   label {
     font-size: 13px;
     font-weight: 600;
-    color: $text-muted;
-    margin-top: 10px;
+    color: var(--muted);
+    margin-top: 14px;
 
     &:first-of-type { margin-top: 0; }
   }
 
   input, textarea {
     font: inherit;
-    color: $text;
-    background: $surface;
-    border: 1px solid $border;
-    border-radius: 8px;
+    color: var(--text);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 3px;
     padding: 10px 12px;
     resize: vertical;
     outline-offset: 2px;
 
-    &:focus-visible { border-color: $accent; }
+    &:focus-visible { border-color: var(--accent); }
   }
 
   .address-row {
@@ -80,33 +91,33 @@ main {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: $surface;
-    color: $text;
-    border: 1px solid $border;
-    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 3px;
     font-size: 16px;
     line-height: 1;
     cursor: pointer;
     outline-offset: 2px;
 
-    &:not(:disabled):hover { border-color: $accent; }
-    &:focus-visible { border-color: $accent; }
+    &:not(:disabled):hover { border-color: var(--accent); }
+    &:focus-visible { border-color: var(--accent); }
     &:disabled { opacity: 0.6; cursor: default; }
   }
 
   .geo-error {
     margin-top: 8px;
     font-size: 13px;
-    color: $error;
+    color: var(--danger);
   }
 
   .geo-warning {
     margin-top: 8px;
     font-size: 13px;
     padding: 8px 10px;
-    border-radius: 6px;
-    background: #eff6ff;
-    color: #1d4ed8;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--danger) 10%, var(--bg));
+    color: var(--danger);
   }
 
   .request-row {
@@ -126,24 +137,24 @@ main {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: $surface;
-    color: $text;
-    border: 1px solid $border;
-    border-radius: 8px;
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 3px;
     font-size: 16px;
     line-height: 1;
     cursor: pointer;
     outline-offset: 2px;
 
-    &:not(:disabled):hover { background: $surface; border-color: $accent; }
-    &:focus-visible { border-color: $accent; }
+    &:not(:disabled):hover { border-color: var(--accent); }
+    &:focus-visible { border-color: var(--accent); }
 
     &.listening {
-      background: $error;
-      border-color: $error;
-      color: #fff;
+      background: var(--danger);
+      border-color: var(--danger);
+      color: var(--bg);
 
-      &:not(:disabled):hover { background: $error; }
+      &:not(:disabled):hover { background: var(--danger); }
     }
   }
 
@@ -158,146 +169,201 @@ main {
 
   .mic-bar {
     flex: 1;
-    background: #fff;
+    background: var(--bg);
     border-radius: 1px;
     min-height: 2px;
-    transition: height 0.08s ease-out;
   }
 
   .mic-hint {
     margin-top: 8px;
     font-size: 12px;
-    color: $text-muted;
+    color: var(--muted);
     font-style: italic;
   }
 
   .voice-error {
     margin-top: 8px;
     font-size: 13px;
-    color: $error;
+    color: var(--danger);
   }
 
-  button {
-    margin-top: 16px;
+  .run-btn {
+    margin-top: 18px;
     align-self: flex-start;
-    background: $accent;
-    color: #fff;
-    border: none;
-    border-radius: 8px;
     padding: 10px 20px;
     font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-
-    &:disabled { opacity: 0.5; cursor: default; }
-    &:not(:disabled):hover { background: #4338ca; }
   }
 
   .run-hint {
     margin-top: 8px;
     font-size: 13px;
-    color: $text-muted;
+    color: var(--muted);
   }
 }
 
 .steps-panel, .result-panel {
-  background: $surface;
-  border: 1px solid $border;
-  border-radius: 10px;
-  padding: 20px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
 
   h2 {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
-    color: $text-muted;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    margin-bottom: 12px;
+    color: var(--muted);
+    margin-bottom: 16px;
   }
 }
 
-.steps-panel ol {
+// Vertical timeline: a single hairline running the length of the list, steps
+// indented past it. No card, no per-item border-radius or shadow.
+.step-list {
   list-style: none;
+  position: relative;
+  padding-left: 14px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 2px;
+    bottom: 2px;
+    width: 1px;
+    background: var(--border);
+  }
+}
+
+// The only animation on the page: a new step settles in from just below.
+@keyframes step-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .step {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: flex-start;
-  font-size: 14px;
+  font-family: $mono;
+  font-size: 13px;
 
-  .step-icon { flex-shrink: 0; }
+  @media (prefers-reduced-motion: no-preference) {
+    animation: step-in 200ms ease-out;
+  }
+
+  .step-icon {
+    flex-shrink: 0;
+    width: 20px;
+    color: var(--muted);
+  }
 
   .step-body {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    min-width: 0;
   }
 
   .step-label { font-weight: 500; }
 
   .step-detail {
     font-size: 12px;
-    color: $text-muted;
+    color: var(--muted);
   }
 
-  &.status-error .step-label { color: $error; }
-  &.status-error .step-detail { color: $error; }
+  &.status-done .step-icon { color: var(--accent); }
+
+  &.status-error .step-icon,
+  &.status-error .step-label,
+  &.status-error .step-detail { color: var(--danger); }
 }
 
+// Receipt-style line items, Amazon-order-confirmation flavor: thumbnail
+// left, name/qty + dotted leader in the middle, price right.
 .cart-items {
   list-style: none;
   display: flex;
   flex-direction: column;
   gap: 10px;
   margin-bottom: 16px;
+  font-family: $mono;
+  font-size: 13px;
 }
 
 .cart-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 14px;
+  padding: 4px 0;
 
-  img { border-radius: 6px; object-fit: cover; }
+  .item-details {
+    flex: 1;
+    display: flex;
+    align-items: flex-end;
+    gap: 6px;
+    min-width: 0;
+  }
 
-  .item-name { flex: 1; }
-  .item-qty { color: $text-muted; }
-  .item-price { font-weight: 600; min-width: 64px; text-align: right; }
+  .item-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item-qty { flex-shrink: 0; color: var(--muted); }
+
+  .item-fill {
+    flex: 1;
+    min-width: 12px;
+    border-bottom: 1px dotted var(--border);
+    margin-bottom: 4px;
+  }
+
+  .item-price { flex-shrink: 0; font-weight: 600; }
+}
+
+// Fixed-size square; background shows through as the placeholder whenever
+// there's no image, or the real one 404s (hidden via (error) in the template).
+.item-thumb-wrap {
+  flex-shrink: 0;
+  width: 52px;
+  height: 52px;
+  border-radius: 4px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.item-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .remove-btn {
   flex-shrink: 0;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
   background: none;
-  color: $text-muted;
-  border: 1px solid $border;
-  border-radius: 6px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 3px;
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
   padding: 0;
   outline-offset: 2px;
 
-  &:not(:disabled):hover { border-color: $error; color: $error; }
+  &:not(:disabled):hover { border-color: var(--danger); color: var(--danger); }
   &:disabled { opacity: 0.5; cursor: default; }
 }
 
 .remove-error {
   margin-bottom: 12px;
   font-size: 13px;
-  color: $error;
+  color: var(--danger);
 }
 
 .empty {
-  color: $text-muted;
+  color: var(--muted);
   font-size: 14px;
   margin-bottom: 16px;
 }
@@ -306,9 +372,10 @@ main {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 14px;
+  font-family: $mono;
+  font-size: 13px;
   padding-top: 12px;
-  border-top: 1px solid $border;
+  border-top: 1px solid var(--border);
 
   span:last-child { font-weight: 600; }
 }
@@ -323,13 +390,13 @@ main {
   li {
     font-size: 13px;
     padding: 8px 10px;
-    border-radius: 6px;
-    background: $error-bg;
-    color: $error;
+    border-radius: 3px;
+    background: var(--border);
+    color: var(--text);
 
-    &.level-info {
-      background: #eff6ff;
-      color: #1d4ed8;
+    &.level-error {
+      background: color-mix(in srgb, var(--danger) 10%, var(--bg));
+      color: var(--danger);
     }
   }
 }
@@ -342,53 +409,26 @@ main {
   margin-top: 16px;
 }
 
-.checkout-btn {
-  display: inline-block;
-  background: $success;
-  color: #fff;
-  text-decoration: none;
-  font-weight: 700;
-  font-size: 16px;
-  padding: 14px 28px;
-  border-radius: 10px;
-  text-align: center;
-  box-shadow: 0 2px 8px rgba(21, 128, 61, 0.35);
-  outline-offset: 2px;
-
-  &:hover { background: #12691f; }
-  &:active { transform: scale(0.98); }
-}
-
-.share-btn {
-  background: $surface;
-  color: $accent;
-  border: 1px solid $accent;
-  font-weight: 600;
+.checkout-btn, .share-btn {
+  padding: 12px 24px;
   font-size: 14px;
-  padding: 13px 20px;
-  border-radius: 10px;
-  cursor: pointer;
-  outline-offset: 2px;
-
-  &:hover { background: #eef2ff; }
-  &:active { transform: scale(0.98); }
 }
 
 .share-feedback {
   margin-top: 8px;
   font-size: 13px;
-  color: $success;
+  color: var(--accent);
 
-  &.error { color: $error; }
+  &.error { color: var(--danger); }
 }
 
 .checkout-note {
   margin-top: 10px;
   font-size: 13px;
   padding: 8px 10px;
-  border-radius: 6px;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border-radius: 3px;
+  background: var(--border);
+  color: var(--text);
 }
 
 .min-order-progress {
@@ -397,24 +437,21 @@ main {
   .checkout-pending { margin-top: 0; margin-bottom: 8px; }
 }
 
+// Thin rule, not a pill.
 .progress-track {
   width: 100%;
-  height: 8px;
-  background: $border;
-  border-radius: 999px;
-  overflow: hidden;
+  height: 2px;
+  background: var(--border);
 }
 
 .progress-fill {
   height: 100%;
-  background: $accent;
-  border-radius: 999px;
-  transition: width 0.3s ease-out;
+  background: var(--accent);
 }
 
 .checkout-pending {
   margin-top: 16px;
   font-size: 13px;
-  color: $text-muted;
+  color: var(--muted);
   font-style: italic;
 }
