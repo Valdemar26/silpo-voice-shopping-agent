@@ -33,6 +33,8 @@ export class AppComponent {
 
   protected readonly voiceError = signal<string | null>(null);
   protected readonly shareFeedback = signal<{ text: string; ok: boolean } | null>(null);
+  protected readonly confirmingClearCart = signal(false);
+  protected readonly clearCartFeedback = signal<string | null>(null);
   protected readonly geoLocating = signal(false);
   protected readonly geoError = signal<string | null>(null);
   protected readonly geoWarning = signal<string | null>(null);
@@ -113,30 +115,37 @@ export class AppComponent {
   // also when the only outstanding issue is order.adult.is_not_confirmed,
   // since Silpo defers that confirmation to the checkout page itself rather
   // than blocking checkoutWebLink.
-  protected readonly isCheckoutReady = computed(
-    () => this.checkoutStatus()?.kind === 'ready' || this.checkoutStatus()?.kind === 'adult-confirmation-required',
+  protected readonly isCheckoutReady = computed(() => this.checkoutStatus()?.canCheckout ?? false);
+
+  // Independent of isCheckoutReady — this note is worth showing whenever the
+  // adult confirmation is outstanding, whether or not something else (e.g.
+  // below-minimum) is also blocking checkout right now.
+  protected readonly needsAdultConfirmation = computed(() => this.checkoutStatus()?.adultConfirmationRequired ?? false);
+
+  protected readonly isBelowMinimum = computed(() => this.checkoutStatus()?.belowMinimum != null);
+
+  protected readonly isStockExceeded = computed(() => (this.checkoutStatus()?.stockExceeded.length ?? 0) > 0);
+
+  protected readonly isOtherBlocked = computed(() => this.checkoutStatus()?.otherBlocked ?? false);
+
+  // Fallback message for when checkout isn't ready but none of the specific
+  // reasons above explain why — e.g. checkoutWebLink simply isn't present
+  // yet with no accompanying validation.
+  protected readonly isBlockedForUnknownReason = computed(() => {
+    const status = this.checkoutStatus();
+    if (!status || status.canCheckout) return false;
+    return status.belowMinimum == null && status.stockExceeded.length === 0 && !status.otherBlocked;
+  });
+
+  protected readonly stockExceededItems = computed<StockExceededItem[]>(() => this.checkoutStatus()?.stockExceeded ?? []);
+
+  protected readonly amountRemainingForCheckout = computed<number>(
+    () => this.checkoutStatus()?.belowMinimum?.remaining ?? 0,
   );
 
-  protected readonly needsAdultConfirmation = computed(() => this.checkoutStatus()?.kind === 'adult-confirmation-required');
-
-  protected readonly isBelowMinimum = computed(() => this.checkoutStatus()?.kind === 'below-minimum');
-
-  protected readonly isStockExceeded = computed(() => this.checkoutStatus()?.kind === 'stock-exceeded');
-
-  protected readonly stockExceededItems = computed<StockExceededItem[]>(() => {
-    const status = this.checkoutStatus();
-    return status?.kind === 'stock-exceeded' ? status.items : [];
-  });
-
-  protected readonly amountRemainingForCheckout = computed<number>(() => {
-    const status = this.checkoutStatus();
-    return status?.kind === 'below-minimum' ? status.remaining : 0;
-  });
-
-  protected readonly minimumOrderProgress = computed<number>(() => {
-    const status = this.checkoutStatus();
-    return status?.kind === 'below-minimum' ? Math.round(status.percent) : 0;
-  });
+  protected readonly minimumOrderProgress = computed<number>(() =>
+    Math.round(this.checkoutStatus()?.belowMinimum?.percent ?? 0),
+  );
 
   // Doesn't touch the run/result flow at all — just hands the already-built
   // cart off to whoever's paying. Native share sheet gives its own feedback
@@ -155,6 +164,26 @@ export class AppComponent {
       return;
     }
     setTimeout(() => this.shareFeedback.set(null), 3000);
+  }
+
+  // Deliberately two-step (request -> confirm/cancel) instead of firing on
+  // the first click — this empties the whole cart server-side and can't be
+  // undone from here.
+  protected requestClearCart(): void {
+    this.confirmingClearCart.set(true);
+  }
+
+  protected cancelClearCart(): void {
+    this.confirmingClearCart.set(false);
+  }
+
+  protected async confirmClearCart(): Promise<void> {
+    this.confirmingClearCart.set(false);
+    const cleared = await this.agent.clearCart();
+    if (!cleared) return;
+
+    this.clearCartFeedback.set('Кошик очищено.');
+    setTimeout(() => this.clearCartFeedback.set(null), 3000);
   }
 
   // silpo_find_address only takes free text, no coordinate search — so this

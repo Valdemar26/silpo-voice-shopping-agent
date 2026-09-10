@@ -106,6 +106,9 @@ export class SilpoAgentService {
   readonly switchingProductIds = signal<ReadonlySet<string>>(new Set());
   readonly switchError = signal<string | null>(null);
 
+  readonly clearingCart = signal(false);
+  readonly clearCartError = signal<string | null>(null);
+
   async run(address: string, request: string): Promise<void> {
     if (this.running()) return;
 
@@ -172,41 +175,44 @@ export class SilpoAgentService {
 
   // Final, explicit outcome of the run — mirrors whatever the "Результат"
   // panel itself will show for the same cart state, computed once via
-  // getCheckoutStatus() so the two can't drift apart again.
+  // getCheckoutStatus() so the two can't drift apart again. Every applicable
+  // blocking reason is listed together (same principle as the panel), not
+  // just the first one found — order.cost.min and, say, an unresolved stock
+  // shortfall can both be true on the same cart at once.
   private addCheckoutStatusStep(state: CartState): void {
     const id = 'checkout-status';
     const status = getCheckoutStatus(state);
 
-    switch (status.kind) {
-      case 'ready':
-        this.addStep({ id, label: 'Кошик готовий до оформлення', status: 'done' });
-        return;
-      case 'below-minimum':
-        this.addStep({ id, label: `Потрібно ще ${status.remaining} ₴ до мінімальної суми`, status: 'done' });
-        return;
-      case 'adult-confirmation-required':
-        this.addStep({
-          id,
-          label: 'Кошик готовий до оформлення — знадобиться підтвердження повноліття на сторінці оформлення',
-          status: 'done',
-        });
-        return;
-      case 'stock-exceeded': {
-        const detail = status.items
-          .map((i) => `«${i.name}»: у кошику ${i.quantity}, у наявності лише ${i.stock}`)
-          .join('; ');
-        this.addStep({
-          id,
-          label: 'Кошик поки недоступний до оформлення — недостатньо товару на складі',
-          status: 'error',
-          detail,
-        });
-        return;
-      }
-      case 'blocked':
-        this.addStep({ id, label: 'Кошик поки недоступний до оформлення', status: 'done' });
-        return;
+    if (status.canCheckout) {
+      const label = status.adultConfirmationRequired
+        ? 'Кошик готовий до оформлення — знадобиться підтвердження повноліття на сторінці оформлення'
+        : 'Кошик готовий до оформлення';
+      this.addStep({ id, label, status: 'done' });
+      return;
     }
+
+    const reasons: string[] = [];
+    if (status.belowMinimum) reasons.push(`потрібно ще ${status.belowMinimum.remaining} ₴ до мінімальної суми`);
+    if (status.stockExceeded.length > 0) {
+      reasons.push(
+        `недостатньо товару на складі: ${status.stockExceeded
+          .map((i) => `«${i.name}» (у кошику ${i.quantity}, у наявності лише ${i.stock})`)
+          .join('; ')}`,
+      );
+    }
+    if (status.otherBlocked) reasons.push('є інша перешкода до оформлення');
+    if (status.adultConfirmationRequired) reasons.push('знадобиться підтвердження повноліття на сторінці оформлення');
+
+    if (reasons.length === 0) {
+      this.addStep({ id, label: 'Кошик поки недоступний до оформлення', status: 'done' });
+      return;
+    }
+
+    this.addStep({
+      id,
+      label: `Кошик поки недоступний до оформлення — ${reasons.join('; ')}`,
+      status: status.stockExceeded.length > 0 ? 'error' : 'done',
+    });
   }
 
   // Removes a single product from the result panel's cart in place — no page
@@ -271,6 +277,35 @@ export class SilpoAgentService {
       next.delete(currentProductId);
       return next;
     });
+  }
+
+  // Empties the whole cart via /api/mcp/cart/clear — a deliberate, destructive
+  // action gated behind its own confirmation in the UI, unlike removeProduct.
+  // Returns whether it succeeded so the caller can show a one-off "done"
+  // message without needing a dedicated success signal here.
+  async clearCart(): Promise<boolean> {
+    if (this.clearingCart()) return false;
+
+    this.clearingCart.set(true);
+    this.clearCartError.set(null);
+
+    try {
+      const response = await fetch('/api/mcp/cart/clear', { method: 'POST' });
+      const data = await response.json();
+
+      if (!response.ok) {
+        this.clearCartError.set(data?.error ?? `HTTP ${response.status}`);
+        return false;
+      }
+
+      this.result.set(null);
+      return true;
+    } catch (e) {
+      this.clearCartError.set(e instanceof Error ? e.message : 'Мережева помилка при очищенні кошика');
+      return false;
+    } finally {
+      this.clearingCart.set(false);
+    }
   }
 
   // Shared by removeProduct() (standalone ✕ button, reports via
@@ -556,7 +591,25 @@ export class SilpoAgentService {
       return null;
     }
 
-    const found = pickBySelector(candidates, selector);
+    let found = pickBySelector(candidates, selector);
+    let anomalyNote: string | null = null;
+
+    // No selector at all ("plain add", e.g. a query like "віскі Ballantine's")
+    // — find_products_batch's top hit can be an isolated outlier (a premium
+    // bottle costing several times the rest of the returned candidates for
+    // the same query). Rather than silently adding that to the cart, fall
+    // back to the cheapest candidate and surface the expensive one as a
+    // muted alternative instead — same mechanism as the discount candidates
+    // below, just triggered by price shape rather than a selector.
+    if (!selector && candidates.length > 1) {
+      const median = medianPrice(candidates);
+      const expensive = candidates[0];
+      if (median > 0 && expensive.price > median * 5) {
+        anomalyNote = `обрано ближче до типової ціни — «${expensive.name}» була значно дорожчою за інші варіанти`;
+        this.registerDiscountAlternatives(candidates);
+        found = candidates.reduce((cheapest, c) => (c.price < cheapest.price ? c : cheapest));
+      }
+    }
 
     // Safety net independent of any selector — find_products_batch's own
     // relevance can be poor (e.g. "гречка" surfacing a candy bar whose
@@ -572,9 +625,12 @@ export class SilpoAgentService {
       return null;
     }
 
-    this.updateStep(id, { status: 'done', detail: describePick(candidates[0], found, selector) });
+    const pickDetail = describePick(candidates[0], found, selector);
+    this.updateStep(id, { status: 'done', detail: anomalyNote ? `${pickDetail}; ${anomalyNote}` : pickDetail });
 
     // Only for selector-driven picks — a plain "add" never shows alternatives.
+    // The price-anomaly path above already registered its own group when it
+    // fired, so this doesn't need to run again for that case.
     if (selector === 'discount') {
       this.registerDiscountAlternatives(candidates);
     }
@@ -658,12 +714,26 @@ export interface StockExceededItem {
   quantity: number;
 }
 
-export type CheckoutStatus =
-  | { kind: 'ready' }
-  | { kind: 'below-minimum'; remaining: number; percent: number }
-  | { kind: 'adult-confirmation-required' }
-  | { kind: 'stock-exceeded'; items: StockExceededItem[] }
-  | { kind: 'blocked' };
+// Independent facts about the cart rather than a single mutually-exclusive
+// "kind" — Silpo can and does report several blocking/informational
+// validations at once (e.g. order.cost.min together with
+// order.adult.is_not_confirmed, or with an unrecognized payment_types.disabled
+// error), and the UI needs to show every applicable reason side by side
+// instead of picking just one and hiding the rest.
+export interface CheckoutStatus {
+  // True once nothing here blocks completing checkout — belowMinimum is
+  // null, stockExceeded is empty, otherBlocked is false, and Silpo actually
+  // handed back a checkoutWebLink. adultConfirmationRequired can still be
+  // true alongside this — that confirmation happens on Silpo's own checkout
+  // page, not here.
+  canCheckout: boolean;
+  belowMinimum: { remaining: number; percent: number } | null;
+  adultConfirmationRequired: boolean;
+  stockExceeded: StockExceededItem[];
+  // Some other error-level validation that isn't order.cost.min, the adult
+  // notice, or a pure stock.max shortfall — e.g. payment_types.disabled.
+  otherBlocked: boolean;
+}
 
 // Cross-references each product.offer.stock.max validation's context
 // (productId + stock) against the cart's own product list to recover the
@@ -685,17 +755,17 @@ function getStockExceededItems(state: CartState): StockExceededItem[] {
     .filter((item): item is StockExceededItem => item !== null);
 }
 
-// Single source of truth for "can this cart be checked out right now", used
-// by both the trace step and the result panel — they'd drifted apart before:
-// the button showed on checkoutWebLink presence alone, ignoring any other
-// error-level validation (e.g. order.adult.is_not_confirmed, found on an
-// alcohol order) that was still sitting in validations[].
+// Single source of truth for "can this cart be checked out right now, and
+// why not", used by both the trace step and the result panel — they'd
+// drifted apart before: the button showed on checkoutWebLink presence alone,
+// ignoring any other error-level validation (e.g. order.adult.is_not_confirmed,
+// found on an alcohol order) that was still sitting in validations[].
 //
-// order.adult.is_not_confirmed specifically does NOT block checkoutWebLink —
-// Silpo asks for age confirmation on the checkout page itself — so that one
-// case still shows the button, plus an explicit note. Any other error-level
-// validation is treated conservatively as blocking, since it hasn't been
-// verified that checkoutWebLink stays usable through it.
+// Each reason below is computed independently rather than short-circuiting
+// on the first one found — order.cost.min, the adult notice, a stock
+// shortfall, and some other unrecognized error can all be present on the
+// same cart at once, and the caller needs every applicable one, not just
+// whichever came first.
 export function getCheckoutStatus(state: CartState): CheckoutStatus {
   const validations = state.cart.calculation.validations;
   const total = state.cart.calculation.totalAfterDiscounts;
@@ -705,41 +775,38 @@ export function getCheckoutStatus(state: CartState): CheckoutStatus {
   // which used to read as "below-minimum" and show "Додайте ще 0 ₴" instead
   // of the checkout button. Equality means the minimum is satisfied.
   const orderCostMin = getOrderCostMin(validations);
-  if (orderCostMin !== null && total < orderCostMin) {
-    const remaining = Math.ceil(orderCostMin - total);
-    const percent = orderCostMin > 0 ? Math.min(100, Math.max(0, (total / orderCostMin) * 100)) : 0;
-    return { kind: 'below-minimum', remaining, percent };
-  }
+  const belowMinimum =
+    orderCostMin !== null && total < orderCostMin
+      ? {
+          remaining: Math.ceil(orderCostMin - total),
+          percent: orderCostMin > 0 ? Math.min(100, Math.max(0, (total / orderCostMin) * 100)) : 0,
+        }
+      : null;
 
-  const hasAdultIssue = validations.some((v) => v.message === 'order.adult.is_not_confirmed');
-  // order.cost.min is excluded here too: once the strict check above has
-  // decided the minimum is actually satisfied, a stale/boundary copy of that
-  // same validation must not turn around and block checkout as "some other
-  // error" instead.
+  // order.adult.is_not_confirmed specifically does NOT block checkoutWebLink
+  // — Silpo asks for age confirmation on the checkout page itself — so it's
+  // tracked separately from the blocking reasons below instead of folded
+  // into them.
+  const adultConfirmationRequired = validations.some((v) => v.message === 'order.adult.is_not_confirmed');
+
+  // order.cost.min is excluded here too — it's already captured as
+  // belowMinimum above, and a stale/boundary copy of that same validation
+  // must not also turn around and count as "some other error".
   const otherErrors = validations.filter(
     (v) => v.level === 'error' && v.message !== 'order.adult.is_not_confirmed' && v.message !== 'order.cost.min',
   );
 
-  if (otherErrors.length > 0) {
-    // Only claim "it's a stock problem" when stock.max is the ONLY kind of
-    // other error present — mixed with some other, still-unrecognized error
-    // (e.g. a stale timeslot), that would be telling half the story, so fall
-    // through to the generic blocked message instead.
-    const allStockExceeded = otherErrors.every((v) => v.message === 'product.offer.stock.max');
-    if (allStockExceeded) {
-      const items = getStockExceededItems(state);
-      if (items.length > 0) {
-        return { kind: 'stock-exceeded', items };
-      }
-    }
-    return { kind: 'blocked' };
-  }
+  // Only claim "it's a stock problem" when stock.max is the ONLY kind of
+  // other error present — mixed with some other, still-unrecognized error
+  // (e.g. a stale timeslot), that would be telling half the story, so that
+  // case falls into otherBlocked's generic message instead.
+  const allStockExceeded = otherErrors.length > 0 && otherErrors.every((v) => v.message === 'product.offer.stock.max');
+  const stockExceeded = allStockExceeded ? getStockExceededItems(state) : [];
+  const otherBlocked = otherErrors.length > 0 && !(allStockExceeded && stockExceeded.length > 0);
 
-  if (state.checkoutWebLink) {
-    return hasAdultIssue ? { kind: 'adult-confirmation-required' } : { kind: 'ready' };
-  }
+  const canCheckout = belowMinimum === null && stockExceeded.length === 0 && !otherBlocked && !!state.checkoutWebLink;
 
-  return { kind: 'blocked' };
+  return { canCheckout, belowMinimum, adultConfirmationRequired, stockExceeded, otherBlocked };
 }
 
 // Short text for the "Поділитися замовленням" action — the person sharing
@@ -787,6 +854,15 @@ function pickBySelector(candidates: SearchProduct[], selector?: Selector): Searc
     if (discounted) return discounted;
   }
   return candidates[0];
+}
+
+// Middle value of the candidates' prices — used to spot a single outlier
+// among otherwise-similar results (candidates.length is capped at 5, so this
+// is cheap and doesn't need a proper selection algorithm).
+function medianPrice(candidates: SearchProduct[]): number {
+  const prices = candidates.map((c) => c.price).sort((a, b) => a - b);
+  const mid = Math.floor(prices.length / 2);
+  return prices.length % 2 !== 0 ? prices[mid] : (prices[mid - 1] + prices[mid]) / 2;
 }
 
 function formatDiscount(p: SearchProduct): string {

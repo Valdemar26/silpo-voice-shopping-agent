@@ -213,6 +213,68 @@ main {
   }
 }
 
+.result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  h2 { margin-bottom: 0; }
+}
+
+// Deliberately understated — sits apart from the checkout/share actions
+// below since this one deletes the whole cart rather than completing it.
+.clear-cart-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  padding: 4px 0;
+
+  &:hover { color: var(--danger); }
+}
+
+.clear-cart-confirm {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.clear-cart-confirm-btn, .clear-cart-cancel-btn {
+  background: none;
+  border-radius: 3px;
+  font-size: 12px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.clear-cart-confirm-btn {
+  border: 1px solid var(--danger);
+  color: var(--danger);
+
+  &:not(:disabled):hover { background: var(--danger); color: var(--bg); }
+  &:disabled { opacity: 0.5; cursor: default; }
+}
+
+.clear-cart-cancel-btn {
+  border: 1px solid var(--border);
+  color: var(--muted);
+
+  &:hover { border-color: var(--muted); color: var(--text); }
+}
+
+.clear-cart-feedback {
+  font-size: 13px;
+  color: var(--accent);
+}
+
 // Vertical timeline: a single hairline running the length of the list, steps
 // indented past it. No card, no per-item border-radius or shadow.
 .step-list {

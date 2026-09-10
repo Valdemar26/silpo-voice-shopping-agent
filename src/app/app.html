@@ -127,7 +127,33 @@
 
     @if (agent.result(); as result) {
       <section class="result-panel" data-cy="result-panel">
-        <h2>Результат</h2>
+        <div class="result-header">
+          <h2>Результат</h2>
+
+          @if (cartItems().length > 0) {
+            @if (confirmingClearCart()) {
+              <span class="clear-cart-confirm" data-cy="clear-cart-confirm">
+                <span>Точно очистити?</span>
+                <button
+                  type="button"
+                  class="clear-cart-confirm-btn"
+                  data-cy="clear-cart-confirm-btn"
+                  [disabled]="agent.clearingCart()"
+                  (click)="confirmClearCart()"
+                >
+                  Так
+                </button>
+                <button type="button" class="clear-cart-cancel-btn" data-cy="clear-cart-cancel-btn" (click)="cancelClearCart()">
+                  Скасувати
+                </button>
+              </span>
+            } @else {
+              <button type="button" class="clear-cart-btn" data-cy="clear-cart-btn" (click)="requestClearCart()">
+                Очистити кошик
+              </button>
+            }
+          }
+        </div>
 
         @if (cartItems().length === 0) {
           <p class="empty" data-cy="cart-empty">У кошику ще немає товарів</p>
@@ -202,6 +228,10 @@
           <p class="remove-error" data-cy="remove-error" role="alert">{{ err }}</p>
         }
 
+        @if (agent.clearCartError(); as err) {
+          <p class="remove-error" data-cy="clear-cart-error" role="alert">{{ err }}</p>
+        }
+
         <div class="totals" data-cy="cart-totals">
           <span>Сума товарів: {{ result.cart.calculation.productsTotal }} ₴</span>
           <span>До сплати: {{ result.cart.calculation.totalAfterDiscounts }} ₴</span>
@@ -234,35 +264,57 @@
               {{ feedback.text }}
             </p>
           }
-        } @else if (isBelowMinimum()) {
-          <div class="min-order-progress" data-cy="checkout-pending">
-            <p class="checkout-pending">
-              Додайте товарів ще на {{ amountRemainingForCheckout() }} ₴, щоб оформити замовлення
-            </p>
-            <div
-              class="progress-track"
-              role="progressbar"
-              [attr.aria-valuenow]="minimumOrderProgress()"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              aria-label="Прогрес до мінімальної суми замовлення"
-            >
-              <div class="progress-fill" [style.width.%]="minimumOrderProgress()"></div>
-            </div>
-          </div>
-        } @else if (isStockExceeded()) {
-          <div class="stock-exceeded" data-cy="checkout-pending">
-            <p class="checkout-pending">Недостатньо товару на складі — зменшіть кількість, щоб оформити замовлення:</p>
-            <ul class="stock-exceeded-list">
-              @for (item of stockExceededItems(); track item.productId) {
-                <li>«{{ item.name }}»: у кошику {{ item.quantity }}, у наявності лише {{ item.stock }}</li>
-              }
-            </ul>
-          </div>
         } @else {
-          <p class="checkout-pending" data-cy="checkout-pending">Кошик поки недоступний до оформлення</p>
+          <!--
+            Every reason below is independent, not mutually exclusive — Silpo
+            can report order.cost.min together with order.adult.is_not_confirmed
+            or another blocking validation at once, so all applicable reasons
+            render side by side instead of picking just one.
+          -->
+          @if (isBelowMinimum()) {
+            <div class="min-order-progress" data-cy="checkout-pending">
+              <p class="checkout-pending">
+                Додайте товарів ще на {{ amountRemainingForCheckout() }} ₴, щоб оформити замовлення
+              </p>
+              <div
+                class="progress-track"
+                role="progressbar"
+                [attr.aria-valuenow]="minimumOrderProgress()"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-label="Прогрес до мінімальної суми замовлення"
+              >
+                <div class="progress-fill" [style.width.%]="minimumOrderProgress()"></div>
+              </div>
+            </div>
+          }
+
+          @if (needsAdultConfirmation()) {
+            <p class="checkout-note" data-cy="checkout-adult-note">
+              Потрібне підтвердження повноліття — це буде запропоновано на сторінці оформлення.
+            </p>
+          }
+
+          @if (isStockExceeded()) {
+            <div class="stock-exceeded" data-cy="checkout-pending">
+              <p class="checkout-pending">Недостатньо товару на складі — зменшіть кількість, щоб оформити замовлення:</p>
+              <ul class="stock-exceeded-list">
+                @for (item of stockExceededItems(); track item.productId) {
+                  <li>«{{ item.name }}»: у кошику {{ item.quantity }}, у наявності лише {{ item.stock }}</li>
+                }
+              </ul>
+            </div>
+          }
+
+          @if (isOtherBlocked() || isBlockedForUnknownReason()) {
+            <p class="checkout-pending" data-cy="checkout-pending">Кошик поки недоступний до оформлення</p>
+          }
         }
       </section>
+    }
+
+    @if (clearCartFeedback(); as feedback) {
+      <p class="clear-cart-feedback" data-cy="clear-cart-feedback" role="status">{{ feedback }}</p>
     }
   </main>
 </div>
