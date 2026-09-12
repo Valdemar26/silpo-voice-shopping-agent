@@ -2,6 +2,7 @@ export const config = { runtime: 'edge' };
 
 import Anthropic from '@anthropic-ai/sdk';
 import { errorResponse, json } from '../../lib/mcp/http';
+import { checkRateLimit } from '../../lib/rate-limit';
 
 interface ParseItemsBody {
   text?: unknown;
@@ -111,6 +112,15 @@ const extractTool: Anthropic.Tool = {
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
     return json({ error: 'Method not allowed' }, 405);
+  }
+
+  // Every request here is a paid Anthropic call — cap it per IP before doing
+  // anything else. Shares the same 'agent' counter as check-relevance.ts
+  // (one Redis key per IP for both endpoints combined), since both draw on
+  // the same "how many Anthropic calls is this IP allowed per minute" budget.
+  const rateLimit = await checkRateLimit(req, 'agent', 30);
+  if (!rateLimit.allowed) {
+    return json({ error: 'Забагато запитів — спробуйте за хвилину' }, 429);
   }
 
   let body: ParseItemsBody;

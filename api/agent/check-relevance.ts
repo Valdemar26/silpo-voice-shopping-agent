@@ -2,6 +2,7 @@ export const config = { runtime: 'edge' };
 
 import Anthropic from '@anthropic-ai/sdk';
 import { errorResponse, json } from '../../lib/mcp/http';
+import { checkRateLimit } from '../../lib/rate-limit';
 
 interface CheckRelevanceBody {
   query?: unknown;
@@ -46,6 +47,12 @@ const relevanceTool: Anthropic.Tool = {
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
     return json({ error: 'Method not allowed' }, 405);
+  }
+
+  // Shares the 'agent' counter with parse-items.ts — see comment there.
+  const rateLimit = await checkRateLimit(req, 'agent', 30);
+  if (!rateLimit.allowed) {
+    return json({ error: 'Забагато запитів — спробуйте за хвилину' }, 429);
   }
 
   let body: CheckRelevanceBody;

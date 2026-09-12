@@ -1,61 +1,61 @@
 # Silpo Voice Shopping Agent
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 21.2.7.
+Голосовий агент для замовлення продуктів у Сільпо: кажеш, що потрібно, агент сам розбирає фразу на конкретні товари, шукає їх, збирає кошик за вказаною адресою і озвучує результат.
 
-## Development server
+**Живий деплой:** https://silpo-voice-shopping-agent.vercel.app
 
-To start a local development server, run:
+## Що це робить
+
+1. Береш мікрофон (або вводиш текст) і кажеш щось на кшталт «два літри молока, хліб і горішки по акції».
+2. LLM (Claude) розбирає фразу на конкретні пошукові запити з кількістю та критерієм вибору («по акції» тощо) — MCP-пошук не робить власного NLU і не приймає довільний текст.
+3. Кожен товар шукається через реальний Сільпо MCP-сервер, проходить перевірку релевантності й додається в кошик за вказаною адресою.
+4. Результат озвучується (TTS) і показується як список товарів із сумою та кнопкою «Оформити замовлення», коли кошик готовий.
+
+Стек: Angular 21 (сигнали, standalone-компоненти) + Vercel Edge Functions (TypeScript) + Upstash Redis, MCP-клієнт до `https://mcp.silpo.ua/mcp`.
+
+## Архітектура
+
+```
+Angular UI (src/app) ──fetch──> api/mcp/*.ts, api/agent/*.ts, api/tts/*.ts (Vercel Edge)
+                                      │
+                        lib/mcp/{oauth,client,silpo-tools}.ts
+                                      │
+                              mcp.silpo.ua/mcp (JSON-RPC / Streamable HTTP)
+
+Upstash Redis: OAuth-токени й сесія MCP (mcp:*), per-IP rate limit (ratelimit:*)
+```
+
+Детальний поточний стан і відомі обмеження — `PROGRESS.md`. Повна історія реалізації, фіксів і того, як кожне рішення було перевірено — `CHANGELOG.md`.
+
+## Engineering decisions
+
+Коротко про рішення, які не очевидні з самого коду:
+
+- **Розпаковка MCP-відповіді не тривіальна.** JSON-RPC `tools/call` повертає `CallToolResult` (`content[]`/`structuredContent`), а не бізнес-обʼєкт напряму — `unwrapToolResult` (`lib/mcp/client.ts`) це враховує; без цього кроку весь стек мовчки отримував би `undefined`.
+- **`addQuantity` форсується у двох шарах.** `silpo_add_or_update_cart_products` за замовчуванням додає кількість до наявної, а не замінює її (недокументовано, підтверджено в Discord Сільпо) — `addQuantity: false` заданий і на call site, і на рівні низькорівневої обгортки (`addOrUpdateCartProducts`), щоб будь-який майбутній виклик лишався безпечним, навіть якщо клієнт про це забуде.
+- **Адреса існуючого кошика ніколи не приймається на віру.** `create_shopping_cart` ідемпотентний і при повторному виклику мовчки повертає вже наявний кошик, ігноруючи нову адресу — `CartAddressMismatchError` (`lib/mcp/silpo-tools.ts`) явно порівнює адреси і кидає помилку замість тихого ризику доставки не туди.
+- **Протухлий timeslot освіжається автоматично перед пошуком.** Кошик, що довго простояв, може мати error-level `timeslot` у `validations`, через що пошук товарів мовчки повертає 0 результатів для будь-якого запиту. `requireCartContext` перевіряє це й освіжає слот сам (`hasStaleTimeslot`/`refreshCartTimeslot`), тією ж логікою, що й створення кошика.
+- **«Мертва» філія — не одразу відмова.** Якщо контрольний пошук («молоко») на `DeliveryHome`-філії повертає 0 результатів, `setupCartForAddress` пробує `SelfPickup` для тієї самої адреси, перш ніж здатися (`DeadBranchError`) — обидві спроби й причина переходу видно в `trace`.
+- **Критерій «по акції» перевіряється на реальних даних, не вигадується.** `selector: "discount"` шукає серед кандидатів товар з реальним `oldPrice`/`specialPrices` із відповіді MCP; якщо жоден не на знижці — береться перший, як і без критерію, але це явно позначено в trace, а не приховано.
+- **`getCheckoutStatus` — єдина функція правди для стану кошика**, що перевіряє кілька незалежних `validations` одночасно (мінімальна сума, підтвердження повноліття, перевищення залишку, інша помилка), а не одну умову — бо Сільпо реально повертає кілька блокуючих причин одночасно, і UI та trace-крок раніше через це розходились.
+- **Підказку «додай ще N₴ і доставка подешевшає» свідомо НЕ реалізовано.** MCP повертає лише вже порахований поточний `delivery.total`, без шкали тарифних порогів — підтверджено живим експериментом (штучне підняття суми кошика справді знижує вартість доставки, але сама шкала ніде не документована й не повертається). Показати поріг без цих даних можна тільки захардкодивши вигадані числа — свідомо цього не зроблено, щоб не показувати користувачу неправдиву інформацію.
+
+## Побудовано з Claude Code
+
+Проєкт розроблявся в парі з Claude Code. `CHANGELOG.md` — не список фічей, а запис верифікації: для кожного нетривіального рішення там зафіксовано, як саме воно було перевірено (живий виклик MCP, ручний прогін на проді з реальним акаунтом, симуляція через мокнутий виклик) і які межі цієї перевірки — включно з випадками, де перевірка неповна (наприклад, автоматизацією неможливо підтвердити реакцію на живий звук мікрофона через політику браузера щодо довірених жестів користувача).
+
+## Розробка
 
 ```bash
+npm install
 ng serve
 ```
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
-
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+Застосунок буде доступний на `http://localhost:4200/`. Локально `vercel dev` не має доступу до production-секретів (Redis/MCP/Anthropic/Respeecher) — вони налаштовані лише у Vercel Production.
 
 ```bash
-ng generate component component-name
+ng build   # прод-збірка в dist/
+ng test    # unit-тести (Vitest)
 ```
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
-
-```bash
-ng generate --help
-```
-
-## Building
-
-To build the project run:
-
-```bash
-ng build
-```
-
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
-
-```bash
-ng test
-```
-
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
-
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
-# Financial-AI-Chat-MVP
-# Financial-AI-Chat-MVP
+Angular CLI (`ng generate component ...` тощо) — стандартний, деталі в [офіційній документації](https://angular.dev/tools/cli).

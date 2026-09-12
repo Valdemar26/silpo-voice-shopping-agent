@@ -1,6 +1,7 @@
 export const config = { runtime: 'edge' };
 
 import { errorResponse, json } from '../../lib/mcp/http';
+import { checkRateLimit } from '../../lib/rate-limit';
 
 interface SpeakBody {
   text?: unknown;
@@ -15,6 +16,14 @@ const RESPEECHER_TTS_URL = 'https://api.respeecher.com/v1/public/tts/ua-rt/tts/b
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
     return json({ error: 'Method not allowed' }, 405);
+  }
+
+  // Own counter, separate from 'agent' — this hits Respeecher, not Anthropic,
+  // and fires at most once per run (the final spoken summary), so a tighter
+  // per-minute cap here doesn't interfere with the parse/relevance budget.
+  const rateLimit = await checkRateLimit(req, 'tts', 15);
+  if (!rateLimit.allowed) {
+    return json({ error: 'Забагато запитів — спробуйте за хвилину' }, 429);
   }
 
   let body: SpeakBody;
