@@ -7,7 +7,8 @@
     "start": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "eval": "tsx evals/runner.ts"
   },
   "private": true,
   "packageManager": "npm@11.4.2",
@@ -30,6 +31,7 @@
     "@types/node": "^25.6.2",
     "jsdom": "^28.0.0",
     "prettier": "^3.8.1",
+    "tsx": "^4.23.13",
     "typescript": "~5.9.2",
     "vitest": "^4.0.8"
   }

@@ -3,47 +3,17 @@ export const config = { runtime: 'edge' };
 import Anthropic from '@anthropic-ai/sdk';
 import { errorResponse, json } from '../../lib/mcp/http';
 import { checkRateLimit } from '../../lib/rate-limit';
+import { checkRelevanceWithClient } from '../../lib/agent/check-relevance-core';
 
 interface CheckRelevanceBody {
   query?: unknown;
   candidateName?: unknown;
 }
 
-// find_products_batch's own search relevance can be poor — e.g. a search for
-// "гречка" (buckwheat) surfacing "Батончик Green Chef Crunch хрумка
-// гречка-вишня" (a candy bar whose flavor happens to be named "гречка-вишня")
-// as its top hit. A plain substring check ("гречка" in the candidate name)
-// would not catch this exact case, since the word genuinely is a substring —
-// it's the wrong TYPE of product, not a wrong string match. Hence a real
-// (if cheap) semantic check instead.
-const SYSTEM_PROMPT = `Ти перевіряєш, чи назва товару з каталогу продуктового магазину дійсно є тим ТИПОМ товару, який шукали — а не просто містить схожі слова.
-
-Порівнюй тип товару (крупа, м'ясо, солодощі, напій тощо), а не бренд, смак чи назву-словосполучення. Наприклад:
-- Запит "гречка", товар "Батончик Green Chef Crunch хрумка гречка-вишня" — НЕ відповідає: це солодкий батончик зі смаком "гречка-вишня", слово "гречка" тут лише частина назви смаку, а не крупа.
-- Запит "гречка", товар "Гречка ядриця Агро" або "Крупа гречана" — відповідає: це реально крупа гречка.
-- Запит "рис", товар "Рис Sacramento чорний лущений" — відповідає: це рис.
-- Запит "рис", товар "Рисовий пудинг зі смаком карамелі" — сумнівно, якщо це готовий десерт, а не крупа — тоді НЕ відповідає.
-
-Будь консервативним: якщо не впевнений, що це саме той тип товару — краще сказати, що не відповідає.`;
-
-const relevanceTool: Anthropic.Tool = {
-  name: 'check_relevance',
-  description: 'Зберігає результат перевірки: чи назва товару дійсно відповідає типу товару з пошукового запиту.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      relevant: {
-        type: 'boolean',
-        description:
-          'true — товар дійсно того типу, який шукали. false — інший тип товару, навіть якщо слово з запиту текстово збігається (напр. лише частина назви смаку/бренду).',
-      },
-    },
-    required: ['relevant'],
-  },
-};
-
 // Server-side only: keeps ANTHROPIC_API_KEY off the client, same pattern as
-// api/agent/parse-items.ts.
+// api/agent/parse-items.ts. The actual prompt/tool/call live in
+// lib/agent/check-relevance-core.ts (shared with evals/runner.ts) — this is
+// just the HTTP/rate-limit/validation wrapper around it.
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
     return json({ error: 'Method not allowed' }, 405);
@@ -76,39 +46,8 @@ export default async function handler(req: Request): Promise<Response> {
 
   try {
     const client = new Anthropic({ apiKey });
-
-    // Haiku, not Opus — this is a cheap binary sanity check on top of the
-    // real search, run once per item added, not the primary parse step.
-    // Haiku doesn't support output_config.effort (confirmed: 400 "This model
-    // does not support the effort parameter" — unlike claude-opus-5 in
-    // parse-items.ts), so it's omitted here.
-    const response = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 256,
-      system: SYSTEM_PROMPT,
-      tools: [relevanceTool],
-      tool_choice: { type: 'tool', name: 'check_relevance' },
-      messages: [
-        {
-          role: 'user',
-          content: `Запит: "${body.query.trim()}"\nЗнайдений товар: "${body.candidateName.trim()}"`,
-        },
-      ],
-    });
-
-    const toolUse = response.content.find(
-      (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use' && b.name === 'check_relevance',
-    );
-    if (!toolUse) {
-      return json({ error: 'Model did not return the expected tool call' }, 502);
-    }
-
-    const input = toolUse.input as { relevant?: unknown };
-    if (typeof input.relevant !== 'boolean') {
-      return json({ error: 'Model returned an invalid relevance result' }, 502);
-    }
-
-    return json({ relevant: input.relevant }, 200);
+    const relevant = await checkRelevanceWithClient(client, body.query, body.candidateName);
+    return json({ relevant }, 200);
   } catch (e) {
     if (e instanceof Anthropic.AuthenticationError) {
       return json({ error: 'Invalid Anthropic API key' }, 502);

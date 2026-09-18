@@ -1,0 +1,14 @@
+{
+  "id": "02-add-bread",
+  "description": "Просте додавання без критеріїв і кількості.",
+  "input": { "request": "Купи хліб" },
+  "expect": {
+    "itemCount": 1,
+    "type": "add",
+    "queryContains": "хліб",
+    "quantity": 1,
+    "selector": null,
+    "fixture": "bread",
+    "pick": { "added": true }
+  }
+}

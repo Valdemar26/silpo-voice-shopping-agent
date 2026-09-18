@@ -1,0 +1,14 @@
+{
+  "id": "03-add-eggs",
+  "description": "Просте додавання без критеріїв і кількості.",
+  "input": { "request": "Мені потрібні яйця" },
+  "expect": {
+    "itemCount": 1,
+    "type": "add",
+    "queryContains": "яйц",
+    "quantity": 1,
+    "selector": null,
+    "fixture": "eggs",
+    "pick": { "added": true, "nameContains": "яйц" }
+  }
+}

@@ -383,6 +383,16 @@ function hasStaleTimeslot(cart: ShoppingCart['cart']): boolean {
  * as-is — only the timeslot was the problem. Returns the re-fetched cart
  * (refreshing the timeslot can also change checkoutWebLink/validations, so
  * the whole object is re-fetched rather than patching just the timeslot).
+ *
+ * shipments must be passed through byte-for-byte from the cart response
+ * (spread, not reconstructed field-by-field) — the tool's own description
+ * says "must also come from the cart response", and this previously rebuilt
+ * each entry as just {companyId, branchId}, silently dropping `products` and
+ * any other field the shipment carried. Whether or not that specific gap
+ * ever caused a real corruption, sending a hand-picked subset of a payload
+ * the API docs say to copy verbatim is exactly the kind of undocumented-
+ * default risk this project has already been burned by once (see
+ * silpo_add_or_update_cart_products' addQuantity default).
  */
 async function refreshCartTimeslot(
   shoppingCartId: string,
@@ -396,7 +406,7 @@ async function refreshCartTimeslot(
     deliveryType,
     timeslot: { start: freshSlot.start, end: freshSlot.end },
     address: cart.address,
-    shipments: cart.shipments.map((s) => ({ companyId: s.companyId, branchId: s.branchId })),
+    shipments: cart.shipments,
   });
   return getShoppingCartById(shoppingCartId);
 }

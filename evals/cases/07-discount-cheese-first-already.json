@@ -1,0 +1,14 @@
+{
+  "id": "07-discount-cheese-first-already",
+  "description": "Критерій 'по акції': перший кандидат (cheese.json[0], President) уже на знижці (oldPrice) — має бути обраний одразу, без зайвого пропуску до наступних кандидатів. Доповнює кейс 06 (де саме перший кандидат НЕ на знижці).",
+  "input": { "request": "купи сир по акції" },
+  "expect": {
+    "itemCount": 1,
+    "type": "add",
+    "queryContains": "сир",
+    "quantity": 1,
+    "selector": "discount",
+    "fixture": "cheese",
+    "pick": { "added": true, "nameContains": "President" }
+  }
+}

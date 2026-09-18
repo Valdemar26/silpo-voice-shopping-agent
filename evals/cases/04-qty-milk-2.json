@@ -1,0 +1,14 @@
+{
+  "id": "04-qty-milk-2",
+  "description": "Явна кількість числом ('два літри') має потрапити в quantity, а не залишитись у query чи зникнути.",
+  "input": { "request": "два літри молока" },
+  "expect": {
+    "itemCount": 1,
+    "type": "add",
+    "queryContains": "молок",
+    "quantity": 2,
+    "selector": null,
+    "fixture": "milk",
+    "pick": { "added": true }
+  }
+}

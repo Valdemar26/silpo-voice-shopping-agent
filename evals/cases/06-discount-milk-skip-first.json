@@ -1,0 +1,14 @@
+{
+  "id": "06-discount-milk-skip-first",
+  "description": "Критерій 'по акції': перший кандидат (milk.json[0]) без знижки, другий (milk.json[1], Lactel) на знижці (specialPrices) — має обрати саме другий, а не мовчки взяти перший.",
+  "input": { "request": "хочу молоко по акції" },
+  "expect": {
+    "itemCount": 1,
+    "type": "add",
+    "queryContains": "молок",
+    "quantity": 1,
+    "selector": "discount",
+    "fixture": "milk",
+    "pick": { "added": true, "nameContains": "Lactel", "nameNotContains": "ПростоНаше" }
+  }
+}

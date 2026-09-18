@@ -1,0 +1,38 @@
+{
+  "_source": "Same 3 real products as a live silpo_find_products_batch(\"гречка\") call, branchId 1effe79c-f8f6-66b2-9a8d-89d681d3e679, fetched 2026-09-18 — but REORDERED to put the candy bar first. Today's live ranking actually returns the two groats products first and the candy bar last, so this fixture does not reproduce the bug as currently ranked; it reconstructs the ordering documented in api/agent/check-relevance.ts's own comment (\"гречка\" surfacing \"Батончик Green Chef Crunch хрумка гречка-вишня\" as the top hit), which is the scenario checkRelevance exists to catch. All ids/names/prices are real, unmodified Silpo data — only the array order was changed.",
+  "candidates": [
+    {
+      "id": "1edb8dac-3ec5-6004-bb7a-53e7405e8b7a",
+      "name": "Батончик Green Chef Crunch хрумка гречка-вишня",
+      "price": 125,
+      "stock": 19,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/92496f70-faf3-4962-a771-e747a9ee226b.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1ed610fe-5158-6d4a-b527-e94d6677599a",
+      "name": "Крупа «Сквирянка» гречана ядриця",
+      "price": 109,
+      "stock": 17,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/eaafb653-5470-47de-9278-0f2739db1c93.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1ed4bc30-627d-6374-8312-e74aee9384e5",
+      "name": "Крупа «Сквирянка» гречана без глютена",
+      "price": 129,
+      "stock": 28,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/47f50eae-d788-4838-a449-827f6492f857.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    }
+  ]
+}

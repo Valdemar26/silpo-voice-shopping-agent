@@ -1,0 +1,60 @@
+{
+  "_source": "Live silpo_find_products_batch(\"сир\"), branchId 1effe79c-f8f6-66b2-9a8d-89d681d3e679 (Львів, Малоголосківська 8є), fetched 2026-09-18. Unmodified order/values. Candidate 0 is already on discount (oldPrice), so a selector:\"discount\" search should match it immediately without needing to skip to a later candidate — the complementary case to milk.json, where candidate 0 is NOT discounted.",
+  "candidates": [
+    {
+      "id": "1ed4e22f-26a4-60da-877d-e74aee9384e5",
+      "name": "Сир кисломолочний President Сирна Традиція 5% ванночка",
+      "price": 65.99,
+      "stock": 36,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/e5d09480-c97e-42cd-b7ab-e2aadb88043a.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": 79.99,
+      "specialPrices": null
+    },
+    {
+      "id": "1f07bbd6-6bdf-6fec-b895-cb21cfc34445",
+      "name": "Сир Deli Q Daily Маасдам 45% з коров’ячого молока нарізка",
+      "price": 189,
+      "stock": 94,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/e4e4f5fa-cafa-48bd-b19c-a00f5e38cf25.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1f0813d9-1798-6c30-be24-cb21cfc34445",
+      "name": "Сир Deli Q Daily Гауда 48% з коров'ячого молока слайси",
+      "price": 299,
+      "stock": 73,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/0e4fc354-cd4d-40ae-84db-23f667bc55ce.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1ed07695-3685-6512-abc7-c1af87aa927f",
+      "name": "Сир Крафтяр Сулугуні палички білі",
+      "price": 67.9,
+      "stock": 2.4,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/f8a2634c-41d5-4731-b2bc-1a23d10a4aaa.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": [{ "price": 49.9, "count": 0.6, "type": "from" }]
+    },
+    {
+      "id": "1ed0767a-fa19-6df4-8c26-dd63763181f9",
+      "name": "Сир Крафтяр Моцарела для піци",
+      "price": 68.9,
+      "stock": 3.5,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/19efda46-5282-4461-8f85-6d303197c52b.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": [{ "price": 49.9, "count": 0.5, "type": "from" }]
+    }
+  ]
+}

@@ -1,0 +1,60 @@
+{
+  "_source": "Live silpo_find_products_batch(\"хліб\"), branchId 1effe79c-f8f6-66b2-9a8d-89d681d3e679 (Львів, Малоголосківська 8є), fetched 2026-09-18. Unmodified order/values.",
+  "candidates": [
+    {
+      "id": "1edaf2dd-a25c-6140-9f65-67d0bfe96414",
+      "name": "Хліб «Кулиничі» «Європейський» тостовий білий",
+      "price": 33.49,
+      "stock": 3,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/ae5dce0d-8b3c-42a8-ba57-25b830b4fdd8.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1ee1537b-1ce9-6652-81e3-f189640448c7",
+      "name": "Хліб Agrola Заварний з соняшником зі Львова нарізаний",
+      "price": 45.66,
+      "stock": 11,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/9f4c4779-94a1-49b6-bc19-d8e30b9d8cb6.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1edbc59f-6c1d-61a2-855c-1df4cd9fb6b0",
+      "name": "Хліб Агробізнес Гречаний нарізаний",
+      "price": 43.04,
+      "stock": 1,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/c5180df6-990d-425e-b4f7-d2711df5eaaa.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1edafc4a-eb9d-65d6-a147-5f8022da6d6b",
+      "name": "Хліб Agrola тостовий ніжний різаний",
+      "price": 60.36,
+      "stock": 24,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/45529459-6c28-4416-8e5c-d26eb1c37dfe.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1edafffd-43c6-6c2a-9a89-c9a9c5f7a57c",
+      "name": "Хліб Кулиничі Голландський з соняшниковим насінням, половинка, нарізаний",
+      "price": 39.57,
+      "stock": 4,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/56d92fb9-ab56-4a27-947f-2704eb9fced3.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    }
+  ]
+}

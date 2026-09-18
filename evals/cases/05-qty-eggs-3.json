@@ -1,0 +1,14 @@
+{
+  "id": "05-qty-eggs-3",
+  "description": "Явна кількість числом ('три яйця') має потрапити в quantity.",
+  "input": { "request": "три яйця" },
+  "expect": {
+    "itemCount": 1,
+    "type": "add",
+    "queryContains": "яйц",
+    "quantity": 3,
+    "selector": null,
+    "fixture": "eggs",
+    "pick": { "added": true, "nameContains": "яйц" }
+  }
+}

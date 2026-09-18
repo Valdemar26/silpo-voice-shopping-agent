@@ -1,0 +1,60 @@
+{
+  "_source": "Live silpo_find_products_batch(\"яйця\"), branchId 1effe79c-f8f6-66b2-9a8d-89d681d3e679 (Львів, Малоголосківська 8є), fetched 2026-09-18. Unmodified order/values.",
+  "candidates": [
+    {
+      "id": "1ed07632-a969-664a-b656-dd63763181f9",
+      "name": "Яйця перепелині «Премія»®",
+      "price": 78.1,
+      "stock": 74,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/e16882d2-4700-484d-8b85-a984f1edda5b.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1ef4ad68-101d-66bc-a578-b77172129efc",
+      "name": "Яйця курячі «Повна Чаша»® 1 категорія",
+      "price": 105.93,
+      "stock": 46,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/faa84416-84f9-4563-8520-aa0cf96f487b.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1ed1a271-0caf-69dc-a152-ef978c4a0ae5",
+      "name": "Яйця курячі «Ясенсвіт» «Для духмяних пирогів» 1 категорії",
+      "price": 116.63,
+      "stock": 276,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/98a425cc-80cc-452f-8864-f69e7897448f.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1ed07648-260a-6554-aa6e-dd63763181f9",
+      "name": "Яйця курячі «Премія»® «Поважний розмір» столові вищої категорії",
+      "price": 79.17,
+      "stock": 1,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/b2dbfe30-f2b0-4b98-8bfd-919e1068bfdb.jpg",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1ed075e2-edf5-6282-b329-dd63763181f9",
+      "name": "Яйце молодильне відбірне",
+      "price": 90.94,
+      "stock": 136,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/20aede6a-2217-475f-851c-1fd54c19d9f1.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    }
+  ]
+}

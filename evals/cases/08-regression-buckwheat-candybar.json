@@ -1,0 +1,14 @@
+{
+  "id": "08-regression-buckwheat-candybar",
+  "description": "Регресія: 'гречка по акції' не має додати 'Батончик...гречка-вишня'. Фікстура навмисно ставить батончик першим кандидатом (жоден не на знижці, тож pickBySelector падає назад на перший) — саме та форма бага, задокументована коментарем у api/agent/check-relevance.ts. checkRelevance (жива LLM-перевірка) має відхилити батончик як невідповідний тип товару, тож нічого не додається (поточна поведінка застосунку не має fallback на наступного кандидата після провалу релевантності).",
+  "input": { "request": "гречка по акції" },
+  "expect": {
+    "itemCount": 1,
+    "type": "add",
+    "queryContains": "гречк",
+    "quantity": 1,
+    "selector": "discount",
+    "fixture": "buckwheat-candybar-first",
+    "pick": { "added": false, "reason": "not_relevant" }
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "_source": "Live silpo_find_products_batch(\"молоко\"), branchId 1effe79c-f8f6-66b2-9a8d-89d681d3e679 (Львів, Малоголосківська 8є), fetched 2026-09-18. Unmodified order/values.",
+  "candidates": [
+    {
+      "id": "1ee3dba8-3dfe-6fba-b223-57aa32a17f1d",
+      "name": "Молоко пастеризоване ПростоНаше 2,5%, пляшка",
+      "price": 71.99,
+      "stock": 9,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/381a5aa2-0493-41e9-9491-6ae0ef7f055f.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1edb8b68-e7e2-67a4-89e5-53e7405e8b7a",
+      "name": "Молоко ультрапастеризоване Lactel питне безлактозне 0,2%",
+      "price": 91.49,
+      "stock": 34,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/342799a3-897c-43f9-a530-6d5e68498a07.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": [{ "price": 71.9, "count": 2, "type": "from" }]
+    },
+    {
+      "id": "1ed076ae-2e3a-64f2-b130-29fd0f44b629",
+      "name": "Молоко «Премія»® питне пастеризоване 2,5% пляшка",
+      "price": 109,
+      "stock": 23,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/a96e5f4f-eda1-47f5-97a6-5989fb13d33f.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": 119,
+      "specialPrices": null
+    },
+    {
+      "id": "1ef6b0d8-fd21-6948-ba19-dd04cb1fe8d1",
+      "name": "Молоко пастеризоване Селянське мікрофільтроване незбиране 3,4-3,8%",
+      "price": 67.99,
+      "stock": 13,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/1ea7e2f0-9263-4cf1-9f8b-d26ed6709a60.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": [{ "price": 59.9, "count": 2, "type": "from" }]
+    },
+    {
+      "id": "1ee3dba8-4932-618e-96ad-57aa32a17f1d",
+      "name": "Молоко ПростоНаше пряжене 2,5% пляшка",
+      "price": 61.99,
+      "stock": 22,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/9b882dc3-359e-4dd6-ac76-b9bc4d3ccf3b.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": 70.99,
+      "specialPrices": null
+    }
+  ]
+}

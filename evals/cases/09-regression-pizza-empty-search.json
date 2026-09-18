@@ -1,0 +1,14 @@
+{
+  "id": "09-regression-pizza-empty-search",
+  "description": "Регресія: 'Піца Сільпо 4 сири' на реальній філії дає 0 кандидатів (fixture pizza-empty.json, live-підтверджено). Цей кейс перевіряє лише pick-логіку (0 кандидатів -> нічого не додано, без падіння чи вигаданого товару) — тобто parseItems+selectProduct у ізоляції, без живого MCP. Сам баг-репорт був про інше: після такого 0-результатного пошуку кількість НЕПОВ'ЯЗАНОГО товару в реальному кошику ('Пиво Опілля Віденське світле') стрибала на 67 — причина була в lib/mcp/silpo-tools.ts:refreshCartTimeslot, який при освіженні протухлого timeslot викликав silpo_update_shopping_cart із shipments, обрізаними до {companyId, branchId} (без products). Це виправлено (shipments тепер передається як є) і live-перевірено на реальному кошику — див. CHANGELOG.md. Ця частина регресії потребує живого кошика і НЕ покривається цим fixture-based кейсом; тримати її задокументованою тут, а не тестувати повторно тут.",
+  "input": { "request": "Піца Сільпо 4 сири" },
+  "expect": {
+    "itemCount": 1,
+    "type": "add",
+    "queryContains": "піц",
+    "quantity": 1,
+    "selector": null,
+    "fixture": "pizza-empty",
+    "pick": { "added": false, "reason": "no_candidates" }
+  }
+}

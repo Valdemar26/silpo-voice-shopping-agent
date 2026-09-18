@@ -1,0 +1,4 @@
+{
+  "_source": "Live silpo_find_products_batch(\"піца 4 сири\"), branchId 1effe79c-f8f6-66b2-9a8d-89d681d3e679 (Львів, Малоголосківська 8є), fetched 2026-09-18 — real 0-result response, matching the bug report in CHANGELOG.md (see the \"Піца Сільпо 4 сири\" entry). Used for the cart-safety regression case: a 0-candidate search must not touch any other cart line. The cart-mutation side of that bug (refreshCartTimeslot dropping `products` from shipments) was fixed and verified live separately — see CHANGELOG.md — and isn't exercised by this fixture-only pick-logic check, since that would need a real cart.",
+  "candidates": []
+}
