@@ -155,8 +155,8 @@ export async function refreshTokens(refreshToken: string): Promise<McpTokens> {
  * or close to expiry. Pass `forceRefresh` after an upstream 401 to skip the
  * (possibly stale) cached expiry check.
  */
-export async function ensureValidAccessToken(forceRefresh = false): Promise<string> {
-  const tokens = await getTokens();
+export async function ensureValidAccessToken(sessionId: string, forceRefresh = false): Promise<string> {
+  const tokens = await getTokens(sessionId);
   if (!tokens) {
     throw new Error('Not authenticated with Silpo MCP — visit /api/mcp/auth/login first');
   }
@@ -170,6 +170,6 @@ export async function ensureValidAccessToken(forceRefresh = false): Promise<stri
   }
 
   const refreshed = await refreshTokens(tokens.refresh_token);
-  await saveTokens(refreshed);
+  await saveTokens(sessionId, refreshed);
   return refreshed.access_token;
 }

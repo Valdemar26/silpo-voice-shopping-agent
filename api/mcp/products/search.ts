@@ -2,6 +2,7 @@ export const config = { runtime: 'edge' };
 
 import { errorResponse, json } from '../../../lib/mcp/http';
 import { findProductsBatch, requireCartContext } from '../../../lib/mcp/silpo-tools';
+import { readOrCreateSessionId, withSessionCookie } from '../../../lib/mcp/session';
 
 interface SearchRequestBody {
   products?: unknown;
@@ -11,27 +12,29 @@ interface SearchRequestBody {
 // Text search for up to 30 product names/article codes at once, scoped to the
 // branch/delivery/timeslot of the user's existing cart.
 export default async function handler(req: Request): Promise<Response> {
+  const session = readOrCreateSessionId(req);
+
   if (req.method !== 'POST') {
-    return json({ error: 'Method not allowed' }, 405);
+    return withSessionCookie(json({ error: 'Method not allowed' }, 405), session);
   }
 
   let body: SearchRequestBody;
   try {
     body = await req.json();
   } catch {
-    return json({ error: 'Invalid JSON body' }, 400);
+    return withSessionCookie(json({ error: 'Invalid JSON body' }, 400), session);
   }
 
   if (!Array.isArray(body.products) || !body.products.every((p) => typeof p === 'string')) {
-    return json({ error: 'products must be an array of strings' }, 400);
+    return withSessionCookie(json({ error: 'products must be an array of strings' }, 400), session);
   }
   const limit = typeof body.limit === 'number' ? body.limit : undefined;
 
   try {
-    const { context } = await requireCartContext();
-    const result = await findProductsBatch(body.products, context, limit);
-    return json(result, 200);
+    const { context } = await requireCartContext(session.sessionId);
+    const result = await findProductsBatch(session.sessionId, body.products, context, limit);
+    return withSessionCookie(json(result, 200), session);
   } catch (e) {
-    return errorResponse(e);
+    return withSessionCookie(errorResponse(e), session);
   }
 }

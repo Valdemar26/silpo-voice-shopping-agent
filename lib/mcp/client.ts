@@ -87,7 +87,7 @@ async function postRpc(accessToken: string, sessionId: string | null, body: unkn
   });
 }
 
-async function initializeSession(accessToken: string): Promise<string | null> {
+async function initializeSession(sessionId: string, accessToken: string): Promise<string | null> {
   const response = await postRpc(accessToken, null, {
     jsonrpc: '2.0',
     id: 'init',
@@ -104,25 +104,27 @@ async function initializeSession(accessToken: string): Promise<string | null> {
   }
 
   await parseJsonRpcResponse(response);
-  const sessionId = response.headers.get('mcp-session-id');
-  if (sessionId) await saveMcpSessionId(sessionId);
-  return sessionId;
+  const mcpSessionId = response.headers.get('mcp-session-id');
+  if (mcpSessionId) await saveMcpSessionId(sessionId, mcpSessionId);
+  return mcpSessionId;
 }
 
-async function getOrInitSessionId(accessToken: string): Promise<string | null> {
-  const cached = await getMcpSessionId();
+async function getOrInitSessionId(sessionId: string, accessToken: string): Promise<string | null> {
+  const cached = await getMcpSessionId(sessionId);
   if (cached) return cached;
-  return initializeSession(accessToken);
+  return initializeSession(sessionId, accessToken);
 }
 
 /**
- * Calls an MCP tool with the stored Silpo access token substituted in.
- * Callers only deal with tool name + arguments; auth, token refresh and MCP
- * session bookkeeping happen here.
+ * Calls an MCP tool with the caller's stored Silpo access token substituted
+ * in. `sessionId` is this browser's own per-visitor id (lib/mcp/session.ts) —
+ * it scopes which Redis-stored access token and which upstream MCP transport
+ * session (`mcpSessionId` below) this call uses; callers otherwise only deal
+ * with tool name + arguments, auth/refresh/session bookkeeping happen here.
  */
-export async function callMcpTool(name: string, args: Record<string, unknown>): Promise<unknown> {
-  let accessToken = await ensureValidAccessToken();
-  let sessionId = await getOrInitSessionId(accessToken);
+export async function callMcpTool(sessionId: string, name: string, args: Record<string, unknown>): Promise<unknown> {
+  let accessToken = await ensureValidAccessToken(sessionId);
+  let mcpSessionId = await getOrInitSessionId(sessionId, accessToken);
 
   const rpcBody = {
     jsonrpc: '2.0',
@@ -131,18 +133,18 @@ export async function callMcpTool(name: string, args: Record<string, unknown>): 
     params: { name, arguments: args },
   };
 
-  let response = await postRpc(accessToken, sessionId, rpcBody);
+  let response = await postRpc(accessToken, mcpSessionId, rpcBody);
 
   if (response.status === 401) {
-    accessToken = await ensureValidAccessToken(true);
-    response = await postRpc(accessToken, sessionId, rpcBody);
+    accessToken = await ensureValidAccessToken(sessionId, true);
+    response = await postRpc(accessToken, mcpSessionId, rpcBody);
   }
 
   if (response.status === 400 || response.status === 404) {
     // Likely an expired/unknown MCP session (not an OAuth problem) — re-init once.
-    await clearMcpSessionId();
-    sessionId = await initializeSession(accessToken);
-    response = await postRpc(accessToken, sessionId, rpcBody);
+    await clearMcpSessionId(sessionId);
+    mcpSessionId = await initializeSession(sessionId, accessToken);
+    response = await postRpc(accessToken, mcpSessionId, rpcBody);
   }
 
   if (!response.ok) {

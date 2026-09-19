@@ -29,9 +29,18 @@ export interface McpTokens {
 
 const CLIENT_KEY = 'mcp:client';
 const CLIENT_LOCK_KEY = 'mcp:client:lock';
-// Single-user deployment: one fixed key instead of a per-session lookup.
-const TOKENS_KEY = 'mcp:tokens:default';
-const SESSION_KEY = 'mcp:session_id';
+// Keyed by the per-browser session id (lib/mcp/session.ts) — was a single
+// fixed key ('mcp:tokens:default') back when this was a single-user
+// deployment. mcp:client above stays global on purpose: it's the one
+// Dynamic-Client-Registration credential shared by every visitor, not
+// per-user data.
+const tokensKey = (sessionId: string) => `mcp:tokens:${sessionId}`;
+// This is the MCP *transport* session (the Mcp-Session-Id header
+// mcp.silpo.ua hands back from `initialize`), tied 1:1 to whichever access
+// token established it — so it must be keyed by the same per-browser
+// sessionId as the tokens above, or two visitors could end up sharing (and
+// fighting over) one upstream MCP session.
+const mcpSessionKey = (sessionId: string) => `mcp:session_id:${sessionId}`;
 const oauthStateKey = (state: string) => `mcp:oauth:state:${state}`;
 
 export async function getClientCredentials(): Promise<McpClientCredentials | null> {
@@ -51,12 +60,12 @@ export async function releaseClientRegistrationLock(): Promise<void> {
   await getRedis().del(CLIENT_LOCK_KEY);
 }
 
-export async function getTokens(): Promise<McpTokens | null> {
-  return getRedis().get<McpTokens>(TOKENS_KEY);
+export async function getTokens(sessionId: string): Promise<McpTokens | null> {
+  return getRedis().get<McpTokens>(tokensKey(sessionId));
 }
 
-export async function saveTokens(tokens: McpTokens): Promise<void> {
-  await getRedis().set(TOKENS_KEY, tokens);
+export async function saveTokens(sessionId: string, tokens: McpTokens): Promise<void> {
+  await getRedis().set(tokensKey(sessionId), tokens);
 }
 
 export async function saveOauthState(state: string, codeVerifier: string): Promise<void> {
@@ -71,14 +80,14 @@ export async function consumeOauthState(state: string): Promise<{ code_verifier:
   return data;
 }
 
-export async function getMcpSessionId(): Promise<string | null> {
-  return getRedis().get<string>(SESSION_KEY);
+export async function getMcpSessionId(sessionId: string): Promise<string | null> {
+  return getRedis().get<string>(mcpSessionKey(sessionId));
 }
 
-export async function saveMcpSessionId(sessionId: string): Promise<void> {
-  await getRedis().set(SESSION_KEY, sessionId);
+export async function saveMcpSessionId(sessionId: string, mcpSessionId: string): Promise<void> {
+  await getRedis().set(mcpSessionKey(sessionId), mcpSessionId);
 }
 
-export async function clearMcpSessionId(): Promise<void> {
-  await getRedis().del(SESSION_KEY);
+export async function clearMcpSessionId(sessionId: string): Promise<void> {
+  await getRedis().del(mcpSessionKey(sessionId));
 }

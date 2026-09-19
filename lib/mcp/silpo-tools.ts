@@ -74,12 +74,12 @@ export interface ShoppingCart {
   checkoutMobileLink?: string;
 }
 
-export async function getMyShoppingCart(): Promise<MyShoppingCart> {
-  return callMcpTool('silpo_get_my_shopping_cart', {}) as Promise<MyShoppingCart>;
+export async function getMyShoppingCart(sessionId: string): Promise<MyShoppingCart> {
+  return callMcpTool(sessionId, 'silpo_get_my_shopping_cart', {}) as Promise<MyShoppingCart>;
 }
 
-export async function getShoppingCartById(shoppingCartId: string): Promise<ShoppingCart> {
-  return callMcpTool('silpo_get_shopping_cart_by_id', { shoppingCartId }) as Promise<ShoppingCart>;
+export async function getShoppingCartById(sessionId: string, shoppingCartId: string): Promise<ShoppingCart> {
+  return callMcpTool(sessionId, 'silpo_get_shopping_cart_by_id', { shoppingCartId }) as Promise<ShoppingCart>;
 }
 
 /**
@@ -94,20 +94,22 @@ export async function getShoppingCartById(shoppingCartId: string): Promise<Shopp
  * the timeslot (same logic ensureShoppingCart uses) before ever handing the
  * context to a caller, instead of letting a search quietly come back empty.
  */
-export async function requireCartContext(): Promise<{ shoppingCartId: string; context: CartSearchContext }> {
-  const mine = await getMyShoppingCart();
+export async function requireCartContext(
+  sessionId: string,
+): Promise<{ shoppingCartId: string; context: CartSearchContext }> {
+  const mine = await getMyShoppingCart(sessionId);
   if (!mine.exists || !mine.shoppingCartId) {
     throw new Error('No shopping cart yet for this account — it must be created first');
   }
 
-  let { cart } = await getShoppingCartById(mine.shoppingCartId);
+  let { cart } = await getShoppingCartById(sessionId, mine.shoppingCartId);
   const branchId = cart.shipments[0]?.branchId;
   if (!branchId || !cart.deliveryType || !cart.timeslot) {
     throw new Error('Cart is missing branch/delivery/timeslot information');
   }
 
   if (hasStaleTimeslot(cart)) {
-    ({ cart } = await refreshCartTimeslot(mine.shoppingCartId, cart, branchId, cart.deliveryType));
+    ({ cart } = await refreshCartTimeslot(sessionId, mine.shoppingCartId, cart, branchId, cart.deliveryType));
   }
 
   return {
@@ -139,6 +141,7 @@ export interface ProductSearchResult {
 }
 
 export async function findProductsBatch(
+  sessionId: string,
   products: string[],
   context: CartSearchContext,
   limit?: number,
@@ -147,7 +150,7 @@ export async function findProductsBatch(
     throw new Error('products must contain between 1 and 30 search terms');
   }
 
-  return callMcpTool('silpo_find_products_batch', {
+  return callMcpTool(sessionId, 'silpo_find_products_batch', {
     branchId: context.branchId,
     deliveryType: context.deliveryType,
     timeslotStart: context.timeslotStart,
@@ -167,6 +170,7 @@ export interface CartProductInput {
 }
 
 export async function addOrUpdateCartProducts(
+  sessionId: string,
   shoppingCartId: string,
   products: CartProductInput[],
 ): Promise<unknown> {
@@ -177,22 +181,22 @@ export async function addOrUpdateCartProducts(
   // quantity instead of setting it. Force false here unless a caller opts in,
   // so every call site gets "set quantity" semantics without having to know
   // about this undocumented default.
-  return callMcpTool('silpo_add_or_update_cart_products', {
+  return callMcpTool(sessionId, 'silpo_add_or_update_cart_products', {
     shoppingCartId,
     products: products.map((p) => ({ addQuantity: false, ...p })),
   });
 }
 
-export async function removeCartProducts(shoppingCartId: string, productIds: string[]): Promise<unknown> {
+export async function removeCartProducts(sessionId: string, shoppingCartId: string, productIds: string[]): Promise<unknown> {
   if (productIds.length === 0) throw new Error('productIds must be a non-empty array');
-  return callMcpTool('silpo_remove_cart_products', {
+  return callMcpTool(sessionId, 'silpo_remove_cart_products', {
     shoppingCartId,
     products: productIds.map((productId) => ({ productId })),
   });
 }
 
-export async function clearShoppingCart(shoppingCartId: string): Promise<unknown> {
-  return callMcpTool('silpo_clear_shopping_cart', { shoppingCartId });
+export async function clearShoppingCart(sessionId: string, shoppingCartId: string): Promise<unknown> {
+  return callMcpTool(sessionId, 'silpo_clear_shopping_cart', { shoppingCartId });
 }
 
 // ---------------------------------------------------------------------------
@@ -210,8 +214,10 @@ export interface ResolvedAddress {
   longitude: number;
 }
 
-export async function findAddress(query: string): Promise<ResolvedAddress[]> {
-  const result = (await callMcpTool('silpo_find_address', { address: query })) as { addresses: ResolvedAddress[] };
+export async function findAddress(sessionId: string, query: string): Promise<ResolvedAddress[]> {
+  const result = (await callMcpTool(sessionId, 'silpo_find_address', { address: query })) as {
+    addresses: ResolvedAddress[];
+  };
   return result.addresses;
 }
 
@@ -221,8 +227,12 @@ export interface DeliveryOption {
   description?: string;
 }
 
-export async function getAvailableDeliveryTypes(latitude: number, longitude: number): Promise<DeliveryOption[]> {
-  const result = (await callMcpTool('silpo_get_available_delivery_types', { latitude, longitude })) as {
+export async function getAvailableDeliveryTypes(
+  sessionId: string,
+  latitude: number,
+  longitude: number,
+): Promise<DeliveryOption[]> {
+  const result = (await callMcpTool(sessionId, 'silpo_get_available_delivery_types', { latitude, longitude })) as {
     options: DeliveryOption[];
   };
   return result.options;
@@ -238,8 +248,11 @@ export interface Branch {
   [key: string]: unknown;
 }
 
-export async function listBranches(opts: { hasPickup?: boolean; hasNP?: boolean; limit?: number } = {}): Promise<Branch[]> {
-  const result = (await callMcpTool('silpo_list_branches', opts)) as { branches: Branch[] };
+export async function listBranches(
+  sessionId: string,
+  opts: { hasPickup?: boolean; hasNP?: boolean; limit?: number } = {},
+): Promise<Branch[]> {
+  const result = (await callMcpTool(sessionId, 'silpo_list_branches', opts)) as { branches: Branch[] };
   return result.branches;
 }
 
@@ -251,8 +264,12 @@ export interface TimeSlot {
   [key: string]: unknown;
 }
 
-export async function getTimeSlots(branchId: string, deliveryTypes?: DeliveryType[]): Promise<TimeSlot[]> {
-  const result = (await callMcpTool('silpo_get_time_slots', {
+export async function getTimeSlots(
+  sessionId: string,
+  branchId: string,
+  deliveryTypes?: DeliveryType[],
+): Promise<TimeSlot[]> {
+  const result = (await callMcpTool(sessionId, 'silpo_get_time_slots', {
     branchId,
     ...(deliveryTypes ? { deliveryTypes } : {}),
   })) as { slots: TimeSlot[] };
@@ -260,8 +277,12 @@ export async function getTimeSlots(branchId: string, deliveryTypes?: DeliveryTyp
 }
 
 /** Never take slots[0] on faith — plenty of returned slots have available:false. */
-export async function findFirstAvailableSlot(branchId: string, deliveryType: DeliveryType): Promise<TimeSlot> {
-  const slots = await getTimeSlots(branchId, [deliveryType]);
+export async function findFirstAvailableSlot(
+  sessionId: string,
+  branchId: string,
+  deliveryType: DeliveryType,
+): Promise<TimeSlot> {
+  const slots = await getTimeSlots(sessionId, branchId, [deliveryType]);
   const slot = slots.find((s) => s.available);
   if (!slot) {
     throw new Error(`No available (available:true) time slots for branch ${branchId} / ${deliveryType}`);
@@ -282,10 +303,11 @@ export interface BranchHealthCheck {
  * trusting the branch enough to create a cart against it.
  */
 export async function verifyBranchIsHealthy(
+  sessionId: string,
   context: CartSearchContext,
   controlQuery = 'молоко',
 ): Promise<BranchHealthCheck> {
-  const result = await findProductsBatch([controlQuery], context, 10);
+  const result = await findProductsBatch(sessionId, [controlQuery], context, 10);
   const query = result.queries[0];
   const products = query?.products ?? [];
   const inStock = products.filter((p) => p.available !== false && p.stock !== 0);
@@ -395,20 +417,21 @@ function hasStaleTimeslot(cart: ShoppingCart['cart']): boolean {
  * silpo_add_or_update_cart_products' addQuantity default).
  */
 async function refreshCartTimeslot(
+  sessionId: string,
   shoppingCartId: string,
   cart: ShoppingCart['cart'],
   branchId: string,
   deliveryType: DeliveryType,
 ): Promise<ShoppingCart> {
-  const freshSlot = await findFirstAvailableSlot(branchId, deliveryType);
-  await callMcpTool('silpo_update_shopping_cart', {
+  const freshSlot = await findFirstAvailableSlot(sessionId, branchId, deliveryType);
+  await callMcpTool(sessionId, 'silpo_update_shopping_cart', {
     shoppingCartId,
     deliveryType,
     timeslot: { start: freshSlot.start, end: freshSlot.end },
     address: cart.address,
     shipments: cart.shipments,
   });
-  return getShoppingCartById(shoppingCartId);
+  return getShoppingCartById(sessionId, shoppingCartId);
 }
 
 /**
@@ -422,12 +445,13 @@ async function refreshCartTimeslot(
  *     since only the timeslot was the problem.
  */
 export async function ensureShoppingCart(
+  sessionId: string,
   address: CreateCartAddress,
   branchId: string,
   deliveryType: DeliveryType,
   timeslot: { start: string; end: string },
 ): Promise<{ shoppingCartId: string } & ShoppingCart> {
-  await callMcpTool('silpo_create_shopping_cart', {
+  await callMcpTool(sessionId, 'silpo_create_shopping_cart', {
     addressType: address.addressType,
     latitude: address.latitude,
     longitude: address.longitude,
@@ -440,19 +464,19 @@ export async function ensureShoppingCart(
     timeslot,
   });
 
-  const mine = await getMyShoppingCart();
+  const mine = await getMyShoppingCart(sessionId);
   if (!mine.exists || !mine.shoppingCartId) {
     throw new Error('create_shopping_cart reported success but no cart is associated with this account');
   }
 
-  let current = await getShoppingCartById(mine.shoppingCartId);
+  let current = await getShoppingCartById(sessionId, mine.shoppingCartId);
 
   if (!isSameAddress(address, current.cart.address)) {
     throw new CartAddressMismatchError(address, current.cart.address);
   }
 
   if (hasStaleTimeslot(current.cart)) {
-    current = await refreshCartTimeslot(mine.shoppingCartId, current.cart, branchId, deliveryType);
+    current = await refreshCartTimeslot(sessionId, mine.shoppingCartId, current.cart, branchId, deliveryType);
   }
 
   return { shoppingCartId: mine.shoppingCartId, ...current };
@@ -481,12 +505,13 @@ interface BranchAttempt {
 
 /** Fetches a timeslot and runs the control-product health check for one branchId/deliveryType, logging both to `trace`. */
 async function attemptBranch(
+  sessionId: string,
   branchId: string,
   deliveryType: DeliveryType,
   controlQuery: string,
   trace: CartSetupTraceEntry[],
 ): Promise<BranchAttempt> {
-  const slot = await findFirstAvailableSlot(branchId, deliveryType);
+  const slot = await findFirstAvailableSlot(sessionId, branchId, deliveryType);
   trace.push({ step: 'get_time_slots', detail: `[${deliveryType}] first available:true slot = ${slot.start} → ${slot.end}` });
 
   const context: CartSearchContext = {
@@ -495,7 +520,7 @@ async function attemptBranch(
     timeslotStart: slot.start,
     timeslotEnd: slot.end,
   };
-  const check = await verifyBranchIsHealthy(context, controlQuery);
+  const check = await verifyBranchIsHealthy(sessionId, context, controlQuery);
   trace.push({
     step: 'verify_branch_health',
     detail: check.healthy
@@ -521,12 +546,13 @@ async function attemptBranch(
  * PROGRESS.md).
  */
 export async function setupCartForAddress(
+  sessionId: string,
   addressQuery: string,
   controlQuery = 'молоко',
 ): Promise<CartSetupResult> {
   const trace: CartSetupTraceEntry[] = [];
 
-  const candidates = await findAddress(addressQuery);
+  const candidates = await findAddress(sessionId, addressQuery);
   if (candidates.length !== 1) {
     trace.push({ step: 'find_address', detail: `${candidates.length} candidates for "${addressQuery}" — ambiguous` });
     throw new AddressAmbiguousError(candidates);
@@ -537,7 +563,7 @@ export async function setupCartForAddress(
     detail: `${resolved.address} (${resolved.latitude}, ${resolved.longitude})`,
   });
 
-  const options = await getAvailableDeliveryTypes(resolved.latitude, resolved.longitude);
+  const options = await getAvailableDeliveryTypes(sessionId, resolved.latitude, resolved.longitude);
   const homeOption = options.find((o) => o.deliveryType === 'DeliveryHome' && o.branchId);
   if (!homeOption?.branchId) {
     trace.push({ step: 'get_available_delivery_types', detail: `no DeliveryHome option: ${JSON.stringify(options)}` });
@@ -548,7 +574,7 @@ export async function setupCartForAddress(
     detail: `chose DeliveryHome, branchId=${homeOption.branchId} (direct branchId, best match for grocery delivery)`,
   });
 
-  let chosen = await attemptBranch(homeOption.branchId, 'DeliveryHome', controlQuery, trace);
+  let chosen = await attemptBranch(sessionId, homeOption.branchId, 'DeliveryHome', controlQuery, trace);
 
   if (!chosen.healthy) {
     const pickupOption = options.find((o) => o.deliveryType === 'SelfPickup' && o.branchId);
@@ -569,7 +595,7 @@ export async function setupCartForAddress(
         `SelfPickup branch ${pickupOption.branchId} for the same address instead`,
     });
 
-    const pickupAttempt = await attemptBranch(pickupOption.branchId, 'SelfPickup', controlQuery, trace);
+    const pickupAttempt = await attemptBranch(sessionId, pickupOption.branchId, 'SelfPickup', controlQuery, trace);
     if (!pickupAttempt.healthy) {
       trace.push({
         step: 'fallback_self_pickup',
@@ -595,7 +621,7 @@ export async function setupCartForAddress(
     longitude: resolved.longitude,
   };
 
-  const result = await ensureShoppingCart(address, chosen.branchId, chosen.deliveryType, {
+  const result = await ensureShoppingCart(sessionId, address, chosen.branchId, chosen.deliveryType, {
     start: chosen.slot.start,
     end: chosen.slot.end,
   });
