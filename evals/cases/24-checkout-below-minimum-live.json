@@ -1,0 +1,29 @@
+{
+  "id": "24-checkout-below-minimum-live",
+  "kind": "checkout-status",
+  "description": "below-minimum, стан 1/2 — точні числа з живого підтвердженого прогону в CHANGELOG.md ('Кнопка «Оформити замовлення»'): реальний кошик на 776₴/3 товари при orderCostMin=799 показав 'Додайте товарів ще на 23 ₴' (799−776=23). getCheckoutStatus викликається напряму (getOrderCostMin/belowMinimum — чиста логіка, без CartState з живого MCP), сама функція не змінювалась.",
+  "input": {
+    "cartState": {
+      "shoppingCartId": "eval-cart-24",
+      "cart": {
+        "id": "eval-cart-24",
+        "deliveryType": "DeliveryHome",
+        "timeslot": { "start": "2026-09-19T09:00:00+00:00", "end": "2026-09-19T10:30:00+00:00" },
+        "shipments": [{ "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679", "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31", "products": [] }],
+        "calculation": {
+          "total": 776,
+          "totalAfterDiscounts": 776,
+          "productsTotal": 776,
+          "validations": [{ "level": "error", "type": "order", "message": "order.cost.min", "context": { "orderCostMin": 799 } }]
+        }
+      }
+    }
+  },
+  "expect": {
+    "canCheckout": false,
+    "belowMinimum": 23,
+    "adultConfirmationRequired": false,
+    "stockExceededCount": 0,
+    "otherBlocked": false
+  }
+}

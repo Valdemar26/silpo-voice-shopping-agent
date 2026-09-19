@@ -1,0 +1,30 @@
+{
+  "id": "26-checkout-cost-min-exact-boundary-ready",
+  "kind": "checkout-status",
+  "description": "Бонусний, але прямо задокументований регресійний кейс з того самого фіксу ('Фікс — межовий випадок «сума = мінімуму»' у CHANGELOG.md): коли total РІВНО дорівнює orderCostMin (Сільпо все одно повертає error-валідацію order.cost.min навіть на точній рівності), belowMinimum має бути null і canCheckout — true. Умова в коді строго '<', не '<=' — цей кейс ловить майбутній регрес на '<=' так само надійно, як below-minimum-кейси ловлять регрес у інший бік.",
+  "input": {
+    "cartState": {
+      "shoppingCartId": "eval-cart-26",
+      "checkoutWebLink": "https://silpo.ua/checkout-new",
+      "cart": {
+        "id": "eval-cart-26",
+        "deliveryType": "DeliveryHome",
+        "timeslot": { "start": "2026-09-19T09:00:00+00:00", "end": "2026-09-19T10:30:00+00:00" },
+        "shipments": [{ "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679", "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31", "products": [] }],
+        "calculation": {
+          "total": 799,
+          "totalAfterDiscounts": 799,
+          "productsTotal": 799,
+          "validations": [{ "level": "error", "type": "order", "message": "order.cost.min", "context": { "orderCostMin": 799 } }]
+        }
+      }
+    }
+  },
+  "expect": {
+    "canCheckout": true,
+    "belowMinimum": null,
+    "adultConfirmationRequired": false,
+    "stockExceededCount": 0,
+    "otherBlocked": false
+  }
+}

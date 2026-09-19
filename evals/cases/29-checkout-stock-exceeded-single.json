@@ -1,0 +1,53 @@
+{
+  "id": "29-checkout-stock-exceeded-single",
+  "kind": "checkout-status",
+  "description": "stock-exceeded, стан 1/2 — точний сценарій з коментаря над StockExceededItem у silpo-agent.ts: 'despite first showing up on a beer line (×3 requested, stock: 2)'. Товар (id/назва — реальні, з живого silpo_find_products_batch(\"пиво\"), fetched 2026-09-19) запитано ×3, у наявності лише 2. otherBlocked має лишитись false, бо це ЄДИНА помилка і вона саме product.offer.stock.max (не 'якась інша, ще не розпізнана').",
+  "input": {
+    "cartState": {
+      "shoppingCartId": "eval-cart-29",
+      "cart": {
+        "id": "eval-cart-29",
+        "deliveryType": "DeliveryHome",
+        "timeslot": { "start": "2026-09-19T09:00:00+00:00", "end": "2026-09-19T10:30:00+00:00" },
+        "shipments": [
+          {
+            "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+            "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+            "products": [
+              {
+                "productId": "1f11824c-f015-6532-b78d-5d77e9af7d65",
+                "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+                "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+                "name": "Пиво Grimbergen Blanche спеціальне світле з/б",
+                "quantity": 3,
+                "price": 67.49,
+                "stock": 2
+              }
+            ]
+          }
+        ],
+        "calculation": {
+          "total": 900,
+          "totalAfterDiscounts": 900,
+          "productsTotal": 900,
+          "validations": [
+            {
+              "level": "error",
+              "type": "product",
+              "message": "product.offer.stock.max",
+              "context": { "productId": "1f11824c-f015-6532-b78d-5d77e9af7d65", "stock": 2 }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "expect": {
+    "canCheckout": false,
+    "belowMinimum": null,
+    "adultConfirmationRequired": false,
+    "stockExceededCount": 1,
+    "stockExceededFirst": { "name": "Пиво Grimbergen Blanche спеціальне світле з/б", "stock": 2, "quantity": 3 },
+    "otherBlocked": false
+  }
+}

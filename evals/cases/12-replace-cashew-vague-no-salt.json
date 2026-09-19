@@ -1,0 +1,15 @@
+{
+  "id": "12-replace-cashew-vague-no-salt",
+  "description": "Реальна фраза з PARSE_ITEMS_SYSTEM_PROMPT (parse-items-core.ts) — прямо наведена там як приклад конкретизації розпливчастого побажання при заміні ('щось без солі' при заміні горіхів → 'горішки без солі'). Перевіряє, що заміна з нечітким query все одно дає конкретний пошуковий запит, а не залишає 'щось без солі' як є.",
+  "input": { "request": "Замініть кеш'ю на щось без солі" },
+  "expect": {
+    "itemCount": 1,
+    "type": "replace",
+    "targetContains": "кеш",
+    "queryContains": "гор",
+    "quantity": 1,
+    "selector": null,
+    "fixture": "nuts",
+    "pick": { "added": true }
+  }
+}

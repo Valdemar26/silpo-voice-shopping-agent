@@ -1,0 +1,13 @@
+{
+  "id": "20-multi-eggs-beer-bread-real",
+  "description": "Дослівна фраза з CHANGELOG.md ('Кількість товару'), перевірена там прямими викликами Anthropic API: 'три яйця, пляшку пива і хліб' → яйця×3/пиво×1/хліб×1. 'Пляшку пива' — тара без числа, НЕ має стати quantity — ключова регресія, яку цей приклад і документує.",
+  "input": { "request": "три яйця, пляшку пива і хліб" },
+  "expect": {
+    "itemCount": 3,
+    "items": [
+      { "type": "add", "queryContains": "яйц", "quantity": 3, "selector": null, "fixture": "eggs", "pick": { "added": true, "nameContains": "яйц" } },
+      { "type": "add", "queryContains": "пив", "quantity": 1, "selector": null, "fixture": "beer", "pick": { "added": true } },
+      { "type": "add", "queryContains": "хліб", "quantity": 1, "selector": null, "fixture": "bread", "pick": { "added": true } }
+    ]
+  }
+}

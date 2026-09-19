@@ -1,0 +1,14 @@
+{
+  "id": "22-relevance-rice-pudding-first",
+  "description": "Другий реальний патерн для relevance guard, окрім гречка/батончик — це той самий приклад, що прямо названий у CHECK_RELEVANCE_SYSTEM_PROMPT (check-relevance-core.ts): 'рис' не має видати готовий рисовий пудинг замість крупи. Фікстура ставить реальний 'Пудинг рисовий Muller вишня' першим кандидатом (той самий прийом реордеру, що й у buckwheat-candybar-first.json) — checkRelevance має відхилити його як не той тип товару.",
+  "input": { "request": "хочу рис" },
+  "expect": {
+    "itemCount": 1,
+    "type": "add",
+    "queryContains": "рис",
+    "quantity": 1,
+    "selector": null,
+    "fixture": "rice-pudding-first",
+    "pick": { "added": false, "reason": "not_relevant" }
+  }
+}

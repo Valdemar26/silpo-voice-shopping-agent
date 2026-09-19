@@ -1,0 +1,29 @@
+{
+  "id": "25-checkout-below-minimum-near-boundary",
+  "kind": "checkout-status",
+  "description": "below-minimum, стан 2/2 — межовий випадок за 0.5₴ до мінімуму, точні числа з живого підтвердженого прогону в CHANGELOG.md ('Фікс — межовий випадок «сума = мінімуму»'): total=798.5 при orderCostMin=799 → 'Додайте ще 1 ₴' (контрольний кейс на те, що below-minimum і далі коректно рахує суму впритул до межі, а не тільки на 'круглих' числах).",
+  "input": {
+    "cartState": {
+      "shoppingCartId": "eval-cart-25",
+      "cart": {
+        "id": "eval-cart-25",
+        "deliveryType": "DeliveryHome",
+        "timeslot": { "start": "2026-09-19T09:00:00+00:00", "end": "2026-09-19T10:30:00+00:00" },
+        "shipments": [{ "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679", "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31", "products": [] }],
+        "calculation": {
+          "total": 798.5,
+          "totalAfterDiscounts": 798.5,
+          "productsTotal": 798.5,
+          "validations": [{ "level": "error", "type": "order", "message": "order.cost.min", "context": { "orderCostMin": 799 } }]
+        }
+      }
+    }
+  },
+  "expect": {
+    "canCheckout": false,
+    "belowMinimum": 1,
+    "adultConfirmationRequired": false,
+    "stockExceededCount": 0,
+    "otherBlocked": false
+  }
+}

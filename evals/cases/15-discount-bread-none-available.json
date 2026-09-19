@@ -1,0 +1,14 @@
+{
+  "id": "15-discount-bread-none-available",
+  "description": "Критерій 'по акції', коли ЖОДЕН з 5 кандидатів не на знижці (bread.json — реальні дані, у всіх oldPrice:null і specialPrices:null). Товар все одно додається (перший знайдений), але describePick має явно сказати 'критерій «акція» не задоволено', а не мовчки поводитись так, ніби критерію не було взагалі.",
+  "input": { "request": "Хочу хліб по акції" },
+  "expect": {
+    "itemCount": 1,
+    "type": "add",
+    "queryContains": "хліб",
+    "quantity": 1,
+    "selector": "discount",
+    "fixture": "bread",
+    "pick": { "added": true, "nameContains": "Кулиничі", "detailContains": "не задоволено" }
+  }
+}

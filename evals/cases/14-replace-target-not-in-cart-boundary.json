@@ -1,0 +1,13 @@
+{
+  "id": "14-replace-target-not-in-cart-boundary",
+  "description": "Межа покриття, як і в 09-regression-pizza-empty-search: 'target не знайдено в кошику' насправді перевіряється SilpoAgentService.findCartProductByTarget (silpo-agent.ts) — приватний метод класу, що читає CartState.cart.shipments і не експортований як окрема функція (на відміну від getCheckoutStatus). Викликати його з цього fixture-based раннера без живого кошика чи зміни mainline-коду (чого це завдання явно не дозволяє) неможливо. Цей кейс тому перевіряє лише те, що дійсно доступно на рівні parseItems: фраза з конструкцією заміни коректно дає type='replace' з непорожнім target, узятим із фрази, а не вигаданим — сам факт 'не знайдено в кошику' лишається задокументованою, але не автоматизованою тут межею покриття, так само як cart-мутуюча частина пацца-регресії в 09.",
+  "input": { "request": "Заміни авокадо на банан" },
+  "expect": {
+    "itemCount": 1,
+    "type": "replace",
+    "targetContains": "авокадо",
+    "queryContains": "банан",
+    "quantity": 1,
+    "selector": null
+  }
+}

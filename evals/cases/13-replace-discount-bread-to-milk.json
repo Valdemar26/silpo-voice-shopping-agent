@@ -1,0 +1,15 @@
+{
+  "id": "13-replace-discount-bread-to-milk",
+  "description": "Заміна товару з критерієм 'по акції' одночасно: обидва поля (target, selector) мають бути розпізнані разом. Використовує ту саму реальну фікстуру milk.json, що й кейс 06 (кандидат 0 не на знижці, кандидат 1 — так), тож pickBySelector має так само пропустити перший і обрати Lactel.",
+  "input": { "request": "Заміни хліб на молоко по акції" },
+  "expect": {
+    "itemCount": 1,
+    "type": "replace",
+    "targetContains": "хліб",
+    "queryContains": "молок",
+    "quantity": 1,
+    "selector": "discount",
+    "fixture": "milk",
+    "pick": { "added": true, "nameContains": "Lactel", "nameNotContains": "ПростоНаше" }
+  }
+}

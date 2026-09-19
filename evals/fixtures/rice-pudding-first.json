@@ -1,0 +1,38 @@
+{
+  "_source": "Real products from two separate live searches on branchId 1effe79c-f8f6-66b2-9a8d-89d681d3e679, fetched 2026-09-19 — candidate 0 from silpo_find_products_batch(\"рисовий пудинг\") (confirms the dessert genuinely exists in the catalog, not a hypothetical), candidates 1-2 from silpo_find_products_batch(\"рис\"). Manually assembled/reordered (same technique as buckwheat-candybar-first.json) to reconstruct the exact scenario named in check-relevance-core.ts's own CHECK_RELEVANCE_SYSTEM_PROMPT: a 'рис' query surfacing a rice PUDDING (dessert) ahead of actual rice groats — 'Рисовий пудинг зі смаком карамелі' in the prompt's own wording, 'Пудинг рисовий Muller вишня/шоколад/ваніль' in this real catalog. All ids/names/prices are real, unmodified — only the grouping/order was constructed.",
+  "candidates": [
+    {
+      "id": "1edb25f2-2706-685e-a4e2-e990029622e2",
+      "name": "Пудинг рисовий Muller вишня 2,2%",
+      "price": 47.99,
+      "stock": 36,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/ca694eaf-939b-436c-b112-7904f48b5fd2.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": 61.99,
+      "specialPrices": null
+    },
+    {
+      "id": "1ef760e2-6d0d-61ee-a17a-f16483b6f4aa",
+      "name": "Рис Cordero рожевий",
+      "price": 299,
+      "stock": 8,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/d0b1b42e-6dd6-46c1-93a2-18fb1d51869a.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1ef760e2-62d8-65de-9166-e7af5baeb75d",
+      "name": "Рис Cordero чорний цілий",
+      "price": 239,
+      "stock": 6,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/dcc5a15d-78e3-4bea-bc1f-0cf251bb6eab.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    }
+  ]
+}

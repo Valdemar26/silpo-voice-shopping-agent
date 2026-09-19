@@ -1,0 +1,38 @@
+{
+  "_source": "Live silpo_find_products_batch(\"кефір\"), branchId 1effe79c-f8f6-66b2-9a8d-89d681d3e679 (Львів, Малоголосківська 8є), fetched 2026-09-19. Unmodified order/values (limit 3).",
+  "candidates": [
+    {
+      "id": "1ed5a008-cc08-6912-b782-43a2c1ce3c17",
+      "name": "Кефір ҐоКарпати ложковий 1%, пляшка",
+      "price": 62.49,
+      "stock": 6,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/29a10b44-daef-4ccc-833c-664c00e3a826.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": [{ "price": 55.9, "count": 2, "type": "from" }]
+    },
+    {
+      "id": "1f05ca6d-7292-671a-8c7b-53a183c31165",
+      "name": "Кефір Селянський густий 2,5% пет",
+      "price": 51.99,
+      "stock": 6,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/fcbf717c-243e-4aa7-af25-d52363f9ce93.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": 62.99,
+      "specialPrices": null
+    },
+    {
+      "id": "1ed07684-8444-6d0e-929f-dd63763181f9",
+      "name": "Кефір «Молокія» густий 1%, пляшка",
+      "price": 47.99,
+      "stock": 66,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/35299223-5f24-40c6-a8e5-2aebe1245ba3.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": 63.49,
+      "specialPrices": null
+    }
+  ]
+}

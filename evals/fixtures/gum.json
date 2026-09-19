@@ -1,0 +1,38 @@
+{
+  "_source": "Live silpo_find_products_batch(\"жуйка\"), branchId 1effe79c-f8f6-66b2-9a8d-89d681d3e679 (Львів, Малоголосківська 8є), fetched 2026-09-19. Unmodified order/values (limit 3).",
+  "candidates": [
+    {
+      "id": "1ed0763c-08d4-6504-ad46-dd63763181f9",
+      "name": "Гумка жувальна Orbit Winterfresh драже",
+      "price": 22.99,
+      "stock": 26,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/7106ea5f-4aa1-4c2e-a017-d49f6a42411f.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1ed0763c-08d5-6008-9491-dd63763181f9",
+      "name": "Гумка жувальна Orbit Sweet Mint драже",
+      "price": 22.99,
+      "stock": 373,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/e2781a88-3b96-4765-8c58-1a3376f77754.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1ed07659-6b22-619e-9878-c1af87aa927f",
+      "name": "Гумка жувальна Orbit Весела лохина",
+      "price": 22.99,
+      "stock": 640,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/1f5cb9c7-66a2-41f3-810f-6d267c7c7386.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    }
+  ]
+}

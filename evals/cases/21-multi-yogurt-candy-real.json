@@ -1,0 +1,12 @@
+{
+  "id": "21-multi-yogurt-candy-real",
+  "description": "Дослівна фраза з CHANGELOG.md ('Кількість товару'), перевірена там прямими викликами Anthropic API: 'п'ять йогуртів і пачку цукерок' → йогурт×5/цукерки×1. 'Пачку' — так само тара без числа, quantity лишається 1.",
+  "input": { "request": "п'ять йогуртів і пачку цукерок" },
+  "expect": {
+    "itemCount": 2,
+    "items": [
+      { "type": "add", "queryContains": "йогурт", "quantity": 5, "selector": null, "fixture": "yogurt", "pick": { "added": true } },
+      { "type": "add", "queryContains": "цукерк", "quantity": 1, "selector": null, "fixture": "candy", "pick": { "added": true } }
+    ]
+  }
+}

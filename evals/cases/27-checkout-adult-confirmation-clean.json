@@ -1,0 +1,30 @@
+{
+  "id": "27-checkout-adult-confirmation-clean",
+  "kind": "checkout-status",
+  "description": "adult-confirmation-required, стан 1/2 — чистий випадок (тільки order.adult.is_not_confirmed, суму вже задоволено). Per CHANGELOG.md ('Фікс — getCheckoutStatus замість перевірки лише order.cost.min'): order.adult.is_not_confirmed НЕ блокує checkoutWebLink — Сільпо питає підтвердження на власній сторінці оформлення — тож canCheckout має лишитись true.",
+  "input": {
+    "cartState": {
+      "shoppingCartId": "eval-cart-27",
+      "checkoutWebLink": "https://silpo.ua/checkout-new",
+      "cart": {
+        "id": "eval-cart-27",
+        "deliveryType": "DeliveryHome",
+        "timeslot": { "start": "2026-09-19T09:00:00+00:00", "end": "2026-09-19T10:30:00+00:00" },
+        "shipments": [{ "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679", "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31", "products": [] }],
+        "calculation": {
+          "total": 850,
+          "totalAfterDiscounts": 850,
+          "productsTotal": 850,
+          "validations": [{ "level": "error", "type": "order", "message": "order.adult.is_not_confirmed", "context": {} }]
+        }
+      }
+    }
+  },
+  "expect": {
+    "canCheckout": true,
+    "belowMinimum": null,
+    "adultConfirmationRequired": true,
+    "stockExceededCount": 0,
+    "otherBlocked": false
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "id": "23-relevance-raspberry-chocolate-first",
+  "description": "Третій реальний патерн для relevance guard: 'малина' (ягода) не має видати шоколадний батончик зі смаком 'Raspberry'. На відміну від гречка/рис-фікстур, тут навіть НЕ знадобився штучний реордер основного товару — 'Шоколад ... Myzo Raspberry' реально потрапляє в топ-5 живого пошуку 'малина' (просто на 5-й позиції); фікстура лише переставляє його на позицію 0, щоб відтворити випадок, коли він опиниться топ-хітом.",
+  "input": { "request": "хочу малину" },
+  "expect": {
+    "itemCount": 1,
+    "type": "add",
+    "queryContains": "малин",
+    "quantity": 1,
+    "selector": null,
+    "fixture": "malina-chocolate-first",
+    "pick": { "added": false, "reason": "not_relevant" }
+  }
+}

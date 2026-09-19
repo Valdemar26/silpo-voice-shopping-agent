@@ -1,0 +1,60 @@
+{
+  "_source": "SYNTHETIC — no live search reproduces this shape today (a live silpo_find_products_batch(\"віскі\") on 2026-09-19 returned 5 whiskeys all in the same 970-2600₴ band, no outlier among them). Hand-built to match the scenario named in pick-product.ts's own comment on the anomaly guard: a plain 'віскі' search where the top hit is an isolated premium bottle costing several times the rest of the returned candidates. Candidate 0 here is priced ~9x the median of the other four (which use real everyday whiskey prices/names as a realistic baseline) — comfortably past the `price > median * 5` threshold in pick-product.ts. Deliberately does NOT name a specific brand in the request (unlike the comment's own 'віскі Ballantine's' example) — naming one brand makes parseItems keep it in `query`, which then makes checkRelevance correctly reject every OTHER brand as a brand mismatch, masking the anomaly guard entirely (confirmed live while building this case). The anomaly guard and the brand-relevance check are both working as designed there — it's just not the right fixture for isolating the anomaly guard specifically.",
+  "candidates": [
+    {
+      "id": "synthetic-whiskey-outlier-0",
+      "name": "Віскі Chivas Regal 25 років лімітована серія",
+      "price": 5499,
+      "stock": 2,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/placeholder.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "synthetic-whiskey-outlier-1",
+      "name": "Віскі Jack Daniel's",
+      "price": 599,
+      "stock": 17,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/placeholder.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "synthetic-whiskey-outlier-2",
+      "name": "Віскі Jim Beam White",
+      "price": 629,
+      "stock": 8,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/placeholder.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "synthetic-whiskey-outlier-3",
+      "name": "Віскі Lewis&Clark Northwest Bourbon",
+      "price": 574,
+      "stock": 7,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/placeholder.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "synthetic-whiskey-outlier-4",
+      "name": "Віскі High West American Prairie Bourbon",
+      "price": 559,
+      "stock": 4,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/placeholder.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    }
+  ]
+}

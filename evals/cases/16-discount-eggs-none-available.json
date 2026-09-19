@@ -1,0 +1,14 @@
+{
+  "id": "16-discount-eggs-none-available",
+  "description": "Критерій 'по акції', коли ЖОДЕН з 5 кандидатів не на знижці (eggs.json — реальні дані, у всіх oldPrice:null і specialPrices:null). Доповнює кейс 15 іншою категорією товару — той самий 'мовчки взяв перший без пояснення' ризик, який просив перевірити запит.",
+  "input": { "request": "Купи яйця по акції" },
+  "expect": {
+    "itemCount": 1,
+    "type": "add",
+    "queryContains": "яйц",
+    "quantity": 1,
+    "selector": "discount",
+    "fixture": "eggs",
+    "pick": { "added": true, "nameContains": "перепелині", "detailContains": "не задоволено" }
+  }
+}

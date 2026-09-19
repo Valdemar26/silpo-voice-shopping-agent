@@ -1,0 +1,12 @@
+{
+  "id": "32-stt-filler-words-politeness",
+  "description": "Слова ввічливості й вставні конструкції, типові для непідготовленого мовлення в мікрофон — саме ('я б хотів', 'можливо', 'також') прямо названі як приклад у PARSE_ITEMS_SYSTEM_PROMPT (parse-items-core.ts), який і має їх ігнорувати. Перевіряє, що вони не потрапляють у query і не плутають кількість items.",
+  "input": { "request": "Я б хотів, можливо, молоко, а також хліб" },
+  "expect": {
+    "itemCount": 2,
+    "items": [
+      { "type": "add", "queryContains": "молок", "quantity": 1, "selector": null, "fixture": "milk", "pick": { "added": true } },
+      { "type": "add", "queryContains": "хліб", "quantity": 1, "selector": null, "fixture": "bread", "pick": { "added": true } }
+    ]
+  }
+}

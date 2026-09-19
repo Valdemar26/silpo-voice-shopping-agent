@@ -1,0 +1,60 @@
+{
+  "_source": "Live silpo_find_products_batch(\"горіхи\"), branchId 1effe79c-f8f6-66b2-9a8d-89d681d3e679 (Львів, Малоголосківська 8є), fetched 2026-09-19. Unmodified order/values.",
+  "candidates": [
+    {
+      "id": "1edaf105-ddc3-644c-a472-e17a9d63ee24",
+      "name": "Горіх мигдаль Seeberger",
+      "price": 424,
+      "stock": 9,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/abb0865b-bfae-423c-9eb1-c360002c0323.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1efce1d7-0d0b-6252-9db3-25a12daa3fa1",
+      "name": "Горіх Макадамія в шкарлупі",
+      "price": 139,
+      "stock": 33,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/c3ae5802-f978-4d3a-921e-4fe92a781242.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1ed076a1-41aa-6bac-a07e-e902eb641b79",
+      "name": "Горіх волоський ядро екстра",
+      "price": 169,
+      "stock": 42,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/810b71a8-8056-4c05-854e-4e1f1b43f43f.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": [{ "price": 123.37, "count": 2, "type": "from" }]
+    },
+    {
+      "id": "1ed076a6-32e6-6de6-b208-45a3653d0710",
+      "name": "Горіх волоський бланшований",
+      "price": 169,
+      "stock": 46,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/2c7a09ec-10e1-498b-bc2f-356b69dbcb44.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1edaf551-eed2-6062-896e-21996f99fc3d",
+      "name": "Фісташки смажені солоні",
+      "price": 144,
+      "stock": 2,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/6d54b07d-1b82-46af-a302-b058c3eaba1c.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    }
+  ]
+}

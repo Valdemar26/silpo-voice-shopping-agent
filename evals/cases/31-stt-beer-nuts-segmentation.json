@@ -1,0 +1,12 @@
+{
+  "id": "31-stt-beer-nuts-segmentation",
+  "description": "Реальна фраза з CHANGELOG.md ('STT через Web Speech API'), яка колись відтворювала баг сегментації розпізнавання (continuous:false ловив тільки 'горішки', губив 'пивасік'). Тут перевіряється не STT-шар (той фікс уже в speech-recognition.ts, поза межами цього раннера), а що LLM-розбір коректно впорається з розмовним 'пивасік' (не 'пиво' дослівно) і дасть 2 окремі items, а не один злитий рядок.",
+  "input": { "request": "хочу якийсь пивасік і горішки" },
+  "expect": {
+    "itemCount": 2,
+    "items": [
+      { "type": "add", "queryContains": "пив", "quantity": 1, "selector": null, "fixture": "beer", "pick": { "added": true } },
+      { "type": "add", "queryContains": "гор", "quantity": 1, "selector": null, "fixture": "nuts", "pick": { "added": true } }
+    ]
+  }
+}

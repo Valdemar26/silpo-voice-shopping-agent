@@ -1,0 +1,67 @@
+{
+  "id": "30-checkout-stock-exceeded-multiple",
+  "kind": "checkout-status",
+  "description": "stock-exceeded, стан 2/2 — ДВА товари одночасно перевищують залишок (addCheckoutStatusStep явно збирає всі причини разом, не тільки першу — цей кейс перевіряє саме масив stockExceeded, а не тільки перший елемент). Обидва товари реальні (пиво і вино, з живих пошуків 2026-09-19), лише CartState-обгортка синтетична.",
+  "input": {
+    "cartState": {
+      "shoppingCartId": "eval-cart-30",
+      "cart": {
+        "id": "eval-cart-30",
+        "deliveryType": "DeliveryHome",
+        "timeslot": { "start": "2026-09-19T09:00:00+00:00", "end": "2026-09-19T10:30:00+00:00" },
+        "shipments": [
+          {
+            "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+            "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+            "products": [
+              {
+                "productId": "1f11824c-f015-6532-b78d-5d77e9af7d65",
+                "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+                "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+                "name": "Пиво Grimbergen Blanche спеціальне світле з/б",
+                "quantity": 3,
+                "price": 67.49,
+                "stock": 2
+              },
+              {
+                "productId": "1efcc913-5f09-6a22-92e0-330345a6c2d0",
+                "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+                "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+                "name": "Вино Rapitala Grillo Sicilia DOC",
+                "quantity": 2,
+                "price": 369,
+                "stock": 1
+              }
+            ]
+          }
+        ],
+        "calculation": {
+          "total": 940,
+          "totalAfterDiscounts": 940,
+          "productsTotal": 940,
+          "validations": [
+            {
+              "level": "error",
+              "type": "product",
+              "message": "product.offer.stock.max",
+              "context": { "productId": "1f11824c-f015-6532-b78d-5d77e9af7d65", "stock": 2 }
+            },
+            {
+              "level": "error",
+              "type": "product",
+              "message": "product.offer.stock.max",
+              "context": { "productId": "1efcc913-5f09-6a22-92e0-330345a6c2d0", "stock": 1 }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "expect": {
+    "canCheckout": false,
+    "belowMinimum": null,
+    "adultConfirmationRequired": false,
+    "stockExceededCount": 2,
+    "otherBlocked": false
+  }
+}

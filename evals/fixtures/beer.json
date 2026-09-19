@@ -1,0 +1,60 @@
+{
+  "_source": "Live silpo_find_products_batch(\"пиво\"), branchId 1effe79c-f8f6-66b2-9a8d-89d681d3e679 (Львів, Малоголосківська 8є), fetched 2026-09-19. Unmodified order/values (limit 5).",
+  "candidates": [
+    {
+      "id": "1eee1918-d43c-6542-97c3-a9b7f623d18a",
+      "name": "Пиво Mike's Hard Drink Lemon",
+      "price": 69.49,
+      "stock": 11,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/a163b58b-12f9-48aa-a15b-5aefddee94cc.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1ed3019c-9e67-6768-b4ca-8f05abac3364",
+      "name": "Пиво Schloss Eggenberg Samichlaus темне фільтроване",
+      "price": 204,
+      "stock": 5,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/f2167729-b816-4b1c-8af9-1d51b50741e5.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": 259,
+      "specialPrices": null
+    },
+    {
+      "id": "1ed07658-11bd-662c-98c1-dd63763181f9",
+      "name": "Пиво Lacplesis Izturets світле з/б",
+      "price": 49.99,
+      "stock": 1,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/ae7fcd67-2b44-4ab1-a649-9e14dc4a5b81.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": 59.99,
+      "specialPrices": null
+    },
+    {
+      "id": "1f11824c-f015-6532-b78d-5d77e9af7d65",
+      "name": "Пиво Grimbergen Blanche спеціальне світле з/б",
+      "price": 67.49,
+      "stock": 315,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/b24926a5-c8bc-4628-846c-ca4caac73076.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1f0ccb70-13ae-65c2-8003-0d351eb41b66",
+      "name": "Пиво Schwechater Marzen світле з/б",
+      "price": 51.99,
+      "stock": 30,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/2ab48e4f-2a8f-4d89-afed-5036f357ba0c.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": 59.99,
+      "specialPrices": null
+    }
+  ]
+}

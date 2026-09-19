@@ -1,0 +1,32 @@
+{
+  "id": "28-checkout-adult-confirmation-plus-below-minimum",
+  "kind": "checkout-status",
+  "description": "adult-confirmation-required, стан 2/2 — комбінований з below-minimum одночасно (саме той сценарій, який addCheckoutStatusStep явно документує в коментарі: 'order.cost.min і, скажімо, нерозв'язана нестача товару на складі можуть бути true на тому самому кошику одночасно'). Числа 700/799/99 — прямо з живого підтвердженого прогону в CHANGELOG.md ('Перевірено синтетичною ін'єкцією CartState... below-minimum рахує суму точно (799−700=99)'). adultConfirmationRequired лишається true незалежно від того, що canCheckout уже false через суму.",
+  "input": {
+    "cartState": {
+      "shoppingCartId": "eval-cart-28",
+      "cart": {
+        "id": "eval-cart-28",
+        "deliveryType": "DeliveryHome",
+        "timeslot": { "start": "2026-09-19T09:00:00+00:00", "end": "2026-09-19T10:30:00+00:00" },
+        "shipments": [{ "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679", "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31", "products": [] }],
+        "calculation": {
+          "total": 700,
+          "totalAfterDiscounts": 700,
+          "productsTotal": 700,
+          "validations": [
+            { "level": "error", "type": "order", "message": "order.cost.min", "context": { "orderCostMin": 799 } },
+            { "level": "error", "type": "order", "message": "order.adult.is_not_confirmed", "context": {} }
+          ]
+        }
+      }
+    }
+  },
+  "expect": {
+    "canCheckout": false,
+    "belowMinimum": 99,
+    "adultConfirmationRequired": true,
+    "stockExceededCount": 0,
+    "otherBlocked": false
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "_source": "Live silpo_find_products_batch(\"йогурт\"), branchId 1effe79c-f8f6-66b2-9a8d-89d681d3e679 (Львів, Малоголосківська 8є), fetched 2026-09-19. Unmodified order/values (limit 3).",
+  "candidates": [
+    {
+      "id": "1ef810dc-759d-6a52-a70e-8390d4c63223",
+      "name": "Йогурт Дольче Вишня зі шматочками фруктів 2,5%, пляшка",
+      "price": 64.99,
+      "stock": 7,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/eec13dde-e40f-460b-bb1a-39fe02b81442.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": [{ "price": 54.9, "count": 2, "type": "from" }]
+    },
+    {
+      "id": "1edb89cd-4473-633a-b6e0-5dc9096b392c",
+      "name": "Йогурт Onur «Турецький»",
+      "price": 39.49,
+      "stock": 22,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/3cf9d910-39c4-4b37-9c75-e2a1bf304073.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1ee5fe7c-f523-69b8-b9a3-4b2fda6901d0",
+      "name": "Йогурт РадиМо Лактоімун лісові ягоди 1,5%, пет",
+      "price": 36.99,
+      "stock": 7,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/06e57ee4-c195-4c0b-a360-dbbe9743517c.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    }
+  ]
+}

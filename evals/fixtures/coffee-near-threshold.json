@@ -1,0 +1,60 @@
+{
+  "_source": "SYNTHETIC — constructed to sit just BELOW the anomaly-guard threshold in pick-product.ts (`expensive.price > median * 5`), as the complementary boundary case to whiskey-outlier.json (which sits clearly above it). Candidate 0 costs 2599, the other four are priced 500-530 (median 520, threshold 520*5=2600) — 2599 is a genuinely premium single-origin coffee next to ordinary ones, but strictly not more than 5x the median, so the guard must NOT fire and must add candidate 0 as a normal pick. Same spirit as the below-minimum exact-boundary regression already covered under checkout-status: the guard's cutoff is a real \">\", not \">=\", and needs a case that sits right on the line to catch a future off-by-one.",
+  "candidates": [
+    {
+      "id": "synthetic-coffee-boundary-0",
+      "name": "Кава Blue Mountain Ямайка в зернах преміум",
+      "price": 2599,
+      "stock": 3,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/placeholder.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "synthetic-coffee-boundary-1",
+      "name": "Кава Lavazza Qualita Rossa в зернах",
+      "price": 520,
+      "stock": 40,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/placeholder.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "synthetic-coffee-boundary-2",
+      "name": "Кава Jacobs Monarch мелена",
+      "price": 510,
+      "stock": 55,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/placeholder.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "synthetic-coffee-boundary-3",
+      "name": "Кава Illy Classico в зернах",
+      "price": 500,
+      "stock": 22,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/placeholder.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "synthetic-coffee-boundary-4",
+      "name": "Кава Ambassador Platinum мелена",
+      "price": 530,
+      "stock": 18,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/placeholder.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    }
+  ]
+}

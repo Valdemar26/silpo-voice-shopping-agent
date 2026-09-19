@@ -1,0 +1,14 @@
+{
+  "id": "17-anomaly-outlier-whiskey",
+  "description": "Захист від аномально дорогого товару без критерію (баг, виправлений у commit a3bbe79 — 'guard against outlier-priced products'), той самий клас сценарію, що й у коментарі pick-product.ts ('напр. запит на \"віскі Ballantine's\"'): запит без selector, топ-кандидат коштує ~9x медіани решти. Запит навмисно НЕ називає конкретний бренд (на відміну від прикладу в коментарі) — інакше parseItems лишає бренд у query, і checkRelevance коректно відхиляє всі ІНШІ бренди як невідповідні, маскуючи саме anomaly-guard (перевірено живим викликом при побудові цього кейсу). Має обрати найдешевший варіант, а не мовчки додати дорогий outlier, і позначити anomalyDetected.",
+  "input": { "request": "Хочу віскі" },
+  "expect": {
+    "itemCount": 1,
+    "type": "add",
+    "queryContains": "віск",
+    "quantity": 1,
+    "selector": null,
+    "fixture": "whiskey-outlier",
+    "pick": { "added": true, "nameNotContains": "Chivas", "anomalyDetected": true }
+  }
+}

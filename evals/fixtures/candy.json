@@ -1,0 +1,38 @@
+{
+  "_source": "Live silpo_find_products_batch(\"цукерки\"), branchId 1effe79c-f8f6-66b2-9a8d-89d681d3e679 (Львів, Малоголосківська 8є), fetched 2026-09-19. Unmodified order/values (limit 3).",
+  "candidates": [
+    {
+      "id": "1ed07611-8b81-6b76-b6bb-dd63763181f9",
+      "name": "Цукерки Nestle After Eight",
+      "price": 299,
+      "stock": 1,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/d0d669b5-e792-45dc-b5d0-6b72b6ed77a8.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1f1a97b3-1b6f-6b5e-8ef4-cd96879e0382",
+      "name": "Цукерки Toniya курага",
+      "price": 499,
+      "stock": 1.9,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/5d40f139-8c44-426c-a022-89473d73f4ae.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1ed287b9-4e1a-6402-84a8-f573f298d107",
+      "name": "Цукерки Millennium Riviera",
+      "price": 194,
+      "stock": 22,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/6a89ce4d-bad3-4981-ac4c-c27f9b8ab6f0.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    }
+  ]
+}

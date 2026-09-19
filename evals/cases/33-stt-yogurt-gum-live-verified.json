@@ -1,0 +1,12 @@
+{
+  "id": "33-stt-yogurt-gum-live-verified",
+  "description": "Дослівна фраза з CHANGELOG.md ('Кількість товару'), перевірена там не лише прямим викликом API, а живим прогоном на проді через реальний кошик: 'два йогурти і жуйку' → trace 'йогурт × 2, жуйка' → реальна сума в кошику точно збіглась. Тут та сама фраза прогоняється через parseItems+selectProduct у ізоляції (без живого MCP).",
+  "input": { "request": "два йогурти і жуйку" },
+  "expect": {
+    "itemCount": 2,
+    "items": [
+      { "type": "add", "queryContains": "йогурт", "quantity": 2, "selector": null, "fixture": "yogurt", "pick": { "added": true } },
+      { "type": "add", "queryContains": "жуйк", "quantity": 1, "selector": null, "fixture": "gum", "pick": { "added": true } }
+    ]
+  }
+}

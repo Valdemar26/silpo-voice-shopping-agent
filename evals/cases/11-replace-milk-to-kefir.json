@@ -1,0 +1,15 @@
+{
+  "id": "11-replace-milk-to-kefir",
+  "description": "Базова заміна ('замініть X на Y'): target і query мають розійтись по різних полях, без критерію.",
+  "input": { "request": "Заміни молоко на кефір" },
+  "expect": {
+    "itemCount": 1,
+    "type": "replace",
+    "targetContains": "молок",
+    "queryContains": "кефір",
+    "quantity": 1,
+    "selector": null,
+    "fixture": "kefir",
+    "pick": { "added": true }
+  }
+}

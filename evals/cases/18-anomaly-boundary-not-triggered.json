@@ -1,0 +1,14 @@
+{
+  "id": "18-anomaly-boundary-not-triggered",
+  "description": "Межовий випадок для того самого захисту (pick-product.ts: `expensive.price > median * 5`, строге '>', той самий принцип, що й межа below-minimum): топ-кандидат коштує 2599 при медіані 520 (поріг спрацювання — 2600) — рівно ПІД межею, тож аномалія НЕ має спрацювати, товар додається як звичайний перший результат.",
+  "input": { "request": "Хочу кави" },
+  "expect": {
+    "itemCount": 1,
+    "type": "add",
+    "queryContains": "кав",
+    "quantity": 1,
+    "selector": null,
+    "fixture": "coffee-near-threshold",
+    "pick": { "added": true, "nameContains": "Blue Mountain", "anomalyDetected": false }
+  }
+}

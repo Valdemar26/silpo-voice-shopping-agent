@@ -1,0 +1,60 @@
+{
+  "_source": "Same 5 real products as a live silpo_find_products_batch(\"малина\") call, branchId 1effe79c-f8f6-66b2-9a8d-89d681d3e679, fetched 2026-09-19 — but REORDERED (same technique as buckwheat-candybar-first.json) to put the chocolate bar first. Today's live ranking actually returns it last (position 5 of 5); this fixture reconstructs the case where it's the top hit, which is what checkRelevance exists to catch regardless of rank. 'Шоколад Лавка традицій Myzo Raspberry крафтовий' is a raspberry-FLAVORED craft chocolate bar, not the fruit — same class of bug as the гречка/candy-bar case documented in check-relevance-core.ts. All ids/names/prices are real, unmodified — only the array order was changed.",
+  "candidates": [
+    {
+      "id": "1ee491f8-f8b7-6bb6-a8c9-979e93bab020",
+      "name": "Шоколад Лавка традицій Myzo Raspberry крафтовий",
+      "price": 249,
+      "stock": 4,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/acf90ed3-ce90-4680-8d33-32dda114b88d.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1edb030d-9293-60d4-9fc6-9f7fd78fecf4",
+      "name": "Малина «Лавка Традицій» Panfruit сублімована",
+      "price": 154,
+      "stock": 1,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/3c53dced-ec0e-4ef1-9b7f-44f1f228c881.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1ed076af-ee03-6666-b81c-eb0bb71c4ffc",
+      "name": "Малина ЕкоВіста червона",
+      "price": 279,
+      "stock": 49,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/48c26c45-82d0-40d9-a224-b8a70d88342d.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1ed0760d-c033-6102-bf95-dd63763181f9",
+      "name": "Малина українська",
+      "price": 339,
+      "stock": 5,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/55a9814f-dfd4-4891-b996-79d606fb6972.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    },
+    {
+      "id": "1f067bd6-ef5c-68d4-b2bf-156ebb43c248",
+      "name": "Малина Chillberry в молочному шоколаді заморожена",
+      "price": 289,
+      "stock": 7,
+      "image": "https://images.silpo.ua/v2/products/500x500/webp/b938c3eb-7d54-43fd-b801-4a60b1d65ae9.png",
+      "companyId": "1ec88c5d-a050-669c-8467-570a157f3e31",
+      "branchId": "1effe79c-f8f6-66b2-9a8d-89d681d3e679",
+      "oldPrice": null,
+      "specialPrices": null
+    }
+  ]
+}

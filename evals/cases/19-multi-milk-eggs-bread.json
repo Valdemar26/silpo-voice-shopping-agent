@@ -1,0 +1,13 @@
+{
+  "id": "19-multi-milk-eggs-bread",
+  "description": "Кілька товарів у одному запиті з різними кількостями для кожного — має розібрати рівно 3 items з правильними query/quantity кожен, а не злити їх в один чи загубити кількість при переході від однієї позиції до іншої.",
+  "input": { "request": "два молока, три яйця і хліб" },
+  "expect": {
+    "itemCount": 3,
+    "items": [
+      { "type": "add", "queryContains": "молок", "quantity": 2, "selector": null, "fixture": "milk", "pick": { "added": true } },
+      { "type": "add", "queryContains": "яйц", "quantity": 3, "selector": null, "fixture": "eggs", "pick": { "added": true, "nameContains": "яйц" } },
+      { "type": "add", "queryContains": "хліб", "quantity": 1, "selector": null, "fixture": "bread", "pick": { "added": true } }
+    ]
+  }
+}
