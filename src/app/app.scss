@@ -50,6 +50,64 @@ main {
   &:disabled { opacity: 0.5; cursor: default; }
 }
 
+.english-intro {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.5;
+
+  summary {
+    font-weight: 600;
+    cursor: pointer;
+    outline-offset: 2px;
+  }
+
+  p, ol {
+    margin-top: 10px;
+  }
+
+  p {
+    color: var(--text);
+  }
+
+  .english-intro-label {
+    font-weight: 600;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+
+  ol {
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    color: var(--text);
+  }
+
+  a {
+    color: var(--accent);
+
+    &:hover { text-decoration-color: var(--accent); }
+  }
+
+  .english-intro-figure {
+    margin-top: 10px;
+
+    img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+      border: 1px solid var(--border);
+    }
+
+    figcaption {
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+  }
+}
+
 .input-panel {
   display: flex;
   flex-direction: column;

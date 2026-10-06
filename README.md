@@ -6,6 +6,8 @@ The non-trivial parts: a from-scratch MCP client with OAuth 2.1 + PKCE + Dynamic
 
 Built for the Silpo AI Factory hackathon. The UI is currently Ukrainian-only.
 
+![Example run](public/example-run.png)
+
 Голосовий агент для замовлення продуктів у Сільпо: кажеш, що потрібно, агент сам розбирає фразу на конкретні товари, шукає їх, збирає кошик за вказаною адресою і озвучує результат.
 
 **Живий деплой:** https://silpo-voice-shopping-agent.vercel.app

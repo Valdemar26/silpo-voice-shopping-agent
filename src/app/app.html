@@ -5,6 +5,55 @@
   </header>
 
   <main>
+    @if (showEnglishIntro()) {
+      <details class="english-intro" data-cy="english-intro" open>
+        <summary>What is this?</summary>
+
+        <p>
+          A voice shopping agent for Silpo, a Ukrainian grocery chain. You say what you need, and it builds a real
+          cart on Silpo's site. Portfolio project built for the Silpo AI Factory hackathon.
+        </p>
+
+        <p class="english-intro-label">How it works</p>
+        <ol>
+          <li>You speak or type a request in Ukrainian, e.g. «пиво по акції, молоко, хліб» (beer on sale, milk, bread).</li>
+          <li>An LLM turns it into structured searches: product, quantity, criteria like 'on sale'.</li>
+          <li>
+            The agent checks the delivery branch is alive, searches the catalog, rejects irrelevant matches and adds
+            products to a real cart. Every step is shown in the trace below.
+          </li>
+          <li>You get a receipt-style summary and a button that opens Silpo's real checkout.</li>
+        </ol>
+
+        <figure class="english-intro-figure">
+          <img
+            ngSrc="/example-run.png"
+            width="800"
+            height="949"
+            alt="Example run: step-by-step agent trace and a receipt-style cart with a checkout button"
+            data-cy="english-intro-screenshot"
+          />
+          <figcaption>Example run. The interface is in Ukrainian; the trace shows every agent step.</figcaption>
+        </figure>
+
+        <p>
+          Why it's interesting: a from-scratch MCP client (OAuth 2.1 + PKCE + Dynamic Client Registration) and
+          guardrails that don't trust API 'success' responses.
+        </p>
+
+        <p>
+          To run it live you need a Silpo account (Ukrainian phone number) and a delivery address in Ukraine.
+          Everyone else: read the code.
+          <a
+            href="https://github.com/Valdemar26/silpo-voice-shopping-agent"
+            target="_blank"
+            rel="noopener"
+            data-cy="english-intro-github-link"
+          >Code on GitHub</a>.
+        </p>
+      </details>
+    }
+
     <form class="input-panel" [formGroup]="form" (ngSubmit)="run()">
       <label for="address-input">Адреса доставки</label>
       <div class="address-row">

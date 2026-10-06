@@ -67,6 +67,14 @@ export class AppComponent {
 
   protected readonly canRun = computed(() => this.formStatus() === 'VALID' && !this.agent.running());
 
+  // Hides the English intro entirely for Ukrainian browsers (via @if, not
+  // CSS) rather than just visually collapsing it — those visitors already
+  // know what this is and don't need the block in the DOM at all.
+  protected readonly showEnglishIntro = computed(() => {
+    const languages = navigator.languages?.length ? navigator.languages : [navigator.language];
+    return !languages.some((lang) => lang.toLowerCase().startsWith('uk'));
+  });
+
   // Deliberately reads raw values rather than formStatus(): the aggregate
   // group status stays "INVALID" (same string) while only address flips from
   // invalid to valid — since request is still empty — and a signal derived
