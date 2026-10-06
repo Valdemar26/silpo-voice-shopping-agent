@@ -1,5 +1,11 @@
 # Silpo Voice Shopping Agent
 
+Voice shopping agent for Silpo (a Ukrainian grocery chain): you say what you need, and it searches the catalog, builds a real cart and hands you off to Silpo's checkout. Built with Angular 21, Vercel Edge Functions, Upstash Redis, Anthropic Claude (Opus for query parsing, Haiku for relevance checks), Web Speech API and Respeecher TTS.
+
+The non-trivial parts: a from-scratch MCP client with OAuth 2.1 + PKCE + Dynamic Client Registration and per-session tokens, plus guardrails that don't trust API success responses (branch health check, relevance check on every match, stale-slot refresh, checkout-blocker detection). Every agent step is shown as a visible trace, and an eval harness with 33 cases guards against regressions.
+
+Built for the Silpo AI Factory hackathon. The UI is currently Ukrainian-only.
+
 Голосовий агент для замовлення продуктів у Сільпо: кажеш, що потрібно, агент сам розбирає фразу на конкретні товари, шукає їх, збирає кошик за вказаною адресою і озвучує результат.
 
 **Живий деплой:** https://silpo-voice-shopping-agent.vercel.app
