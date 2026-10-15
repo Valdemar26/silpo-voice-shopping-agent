@@ -1,0 +1,198 @@
+// Runs exactly one control-plane step via the existing lib/ functions — the
+// decision logic itself (setupCartForAddress, parseItemsWithClient,
+// selectProduct, the cart mutation calls) is never reimplemented here, only
+// called and timed. A thrown exception from any of those is the only thing
+// that produces status: 'failed' — "product not found" is a normal,
+// succeeded outcome with output.picked === null, same as
+// SilpoAgentService.searchAndPickProduct's error-step-but-not-exception
+// distinction (src/app/services/silpo-agent.ts).
+import Anthropic from '@anthropic-ai/sdk';
+import { checkRelevanceWithClient } from '../agent/check-relevance-core';
+import { findCartProductByTarget, getCheckoutStatus, type CartState } from '../agent/cart-state';
+import { parseItemsWithClient } from '../agent/parse-items-core';
+import { selectProduct, type SearchProduct } from '../agent/pick-product';
+import {
+  addOrUpdateCartProducts,
+  findProductsBatch,
+  getMyShoppingCart,
+  getShoppingCartById,
+  removeCartProducts,
+  requireCartContext,
+  setupCartForAddress,
+} from '../mcp/silpo-tools';
+import type { PlanDecision } from './plan';
+import type { LlmUsage, Run, Step, StepKind, ToolCall } from './types';
+
+export interface ExecuteContext {
+  sessionId: string;
+  // Undefined when ANTHROPIC_API_KEY isn't configured — only 'parse' and
+  // 'select_product' need it; they throw (a normal technical failure) if
+  // it's missing instead of this being a precondition the caller must check.
+  anthropicClient: Anthropic | undefined;
+}
+
+async function timed<T>(toolCalls: ToolCall[], name: string, fn: () => Promise<T>): Promise<T> {
+  const start = Date.now();
+  try {
+    const result = await fn();
+    toolCalls.push({ name, ok: true, durationMs: Date.now() - start });
+    return result;
+  } catch (e) {
+    toolCalls.push({ name, ok: false, durationMs: Date.now() - start });
+    throw e;
+  }
+}
+
+function computeAttempt(steps: Step[], kind: StepKind, itemKey: string | undefined): number {
+  return steps.filter((s) => s.kind === kind && s.itemKey === itemKey).length + 1;
+}
+
+async function requireShoppingCartId(toolCalls: ToolCall[], sessionId: string): Promise<string> {
+  const mine = await timed(toolCalls, 'getMyShoppingCart', () => getMyShoppingCart(sessionId));
+  if (!mine.exists || !mine.shoppingCartId) {
+    throw new Error('No shopping cart yet for this account — it must be created first');
+  }
+  return mine.shoppingCartId;
+}
+
+// Fetched fresh from the MCP server, never taken from a previous step's
+// journal output — the journal can be stale, especially across a pause or
+// after a crash-recovery retry.
+async function fetchCartState(
+  toolCalls: ToolCall[],
+  sessionId: string,
+  shoppingCartId: string,
+): Promise<CartState> {
+  const fresh = await timed(toolCalls, 'getShoppingCartById', () => getShoppingCartById(sessionId, shoppingCartId));
+  // ShoppingCart's declared type under-models the real MCP response (it types
+  // shipments[].products loosely, with name/quantity only reachable through
+  // its index signature) — the actual payload carries the fields CartState
+  // declares, confirmed against live responses (see lib/agent/cart-state.ts
+  // and lib/agent/pick-product.ts's SearchProduct for the same gap).
+  return { shoppingCartId, cart: fresh.cart, checkoutWebLink: fresh.checkoutWebLink } as unknown as CartState;
+}
+
+type Decision = Exclude<PlanDecision, { kind: 'done' }>;
+
+async function runDecision(
+  decision: Decision,
+  run: Run,
+  ctx: ExecuteContext,
+  toolCalls: ToolCall[],
+  llm: LlmUsage[],
+): Promise<unknown> {
+  switch (decision.kind) {
+    case 'setup_cart':
+      return timed(toolCalls, 'setupCartForAddress', () => setupCartForAddress(ctx.sessionId, run.input.address));
+
+    case 'parse': {
+      if (!ctx.anthropicClient) throw new Error('Query parsing not configured: missing ANTHROPIC_API_KEY');
+      const anthropicClient = ctx.anthropicClient;
+      return {
+        items: await timed(toolCalls, 'parseItemsWithClient', () =>
+          parseItemsWithClient(anthropicClient, run.input.request, (usage) => llm.push(usage)),
+        ),
+      };
+    }
+
+    case 'select_product': {
+      if (!ctx.anthropicClient) throw new Error('Relevance check not configured: missing ANTHROPIC_API_KEY');
+      const anthropicClient = ctx.anthropicClient;
+      const { context } = await timed(toolCalls, 'requireCartContext', () => requireCartContext(ctx.sessionId));
+      const searchResult = await timed(toolCalls, 'findProductsBatch', () =>
+        findProductsBatch(ctx.sessionId, [decision.item.query], context, 5),
+      );
+      // See fetchCartState's comment — findProductsBatch's declared return
+      // type under-models the live response; SearchProduct is the real,
+      // confirmed shape (lib/agent/pick-product.ts).
+      const candidates = (searchResult.queries[0]?.products ?? []) as unknown as SearchProduct[];
+
+      const outcome = await selectProduct(candidates, decision.item.selector, decision.item.query, (query, candidateName) =>
+        timed(toolCalls, 'checkRelevanceWithClient', () =>
+          checkRelevanceWithClient(anthropicClient, query, candidateName, (usage) => llm.push(usage)),
+        ),
+      );
+
+      return { picked: outcome.picked, reason: outcome.reason, detail: outcome.detail };
+    }
+
+    case 'cart_write': {
+      const shoppingCartId = await requireShoppingCartId(toolCalls, ctx.sessionId);
+
+      if (decision.item.type === 'replace') {
+        const freshCart = await fetchCartState(toolCalls, ctx.sessionId, shoppingCartId);
+        const existing = findCartProductByTarget(freshCart, decision.item.target);
+        if (!existing) {
+          throw new Error(`Replace target "${decision.item.target}" not found in the current cart`);
+        }
+        await timed(toolCalls, 'removeCartProducts', () =>
+          removeCartProducts(ctx.sessionId, shoppingCartId, [existing.productId]),
+        );
+      }
+
+      await timed(toolCalls, 'addOrUpdateCartProducts', () =>
+        addOrUpdateCartProducts(ctx.sessionId, shoppingCartId, [
+          {
+            productId: decision.picked.id,
+            companyId: decision.picked.companyId,
+            branchId: decision.picked.branchId,
+            quantity: decision.item.quantity,
+            addQuantity: false,
+          },
+        ]),
+      );
+
+      const updated = await fetchCartState(toolCalls, ctx.sessionId, shoppingCartId);
+      return updated;
+    }
+
+    case 'finalize': {
+      const shoppingCartId = await requireShoppingCartId(toolCalls, ctx.sessionId);
+      const cartState = await fetchCartState(toolCalls, ctx.sessionId, shoppingCartId);
+      return { checkoutStatus: getCheckoutStatus(cartState) };
+    }
+  }
+}
+
+export async function executeStep(run: Run, steps: Step[], decision: Decision, ctx: ExecuteContext): Promise<Omit<Step, 'index'>> {
+  const itemKey = 'itemKey' in decision ? decision.itemKey : undefined;
+  const idempotencyKey = decision.kind === 'cart_write' ? `${run.id}:${decision.itemKey}` : undefined;
+  const attempt = computeAttempt(steps, decision.kind, itemKey);
+
+  const startedAt = Date.now();
+  const toolCalls: ToolCall[] = [];
+  const llm: LlmUsage[] = [];
+
+  try {
+    const output = await runDecision(decision, run, ctx, toolCalls, llm);
+    return {
+      runId: run.id,
+      kind: decision.kind,
+      status: 'succeeded',
+      attempt,
+      itemKey,
+      idempotencyKey,
+      input: decision,
+      output,
+      toolCalls,
+      llm: llm.length > 0 ? llm : undefined,
+      startedAt,
+      finishedAt: Date.now(),
+    };
+  } catch (e) {
+    return {
+      runId: run.id,
+      kind: decision.kind,
+      status: 'failed',
+      attempt,
+      itemKey,
+      idempotencyKey,
+      input: decision,
+      error: e instanceof Error ? e.message : 'Unknown error',
+      toolCalls,
+      llm: llm.length > 0 ? llm : undefined,
+      startedAt,
+      finishedAt: Date.now(),
+    };
+  }
+}

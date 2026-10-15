@@ -5,6 +5,9 @@
 // handler there is now a thin HTTP/rate-limit wrapper around
 // checkRelevanceWithClient.
 import Anthropic from '@anthropic-ai/sdk';
+import type { LlmUsage } from './parse-items-core';
+
+export type { LlmUsage };
 
 // find_products_batch's own search relevance can be poor — e.g. a search for
 // "гречка" (buckwheat) surfacing "Батончик Green Chef Crunch хрумка
@@ -47,11 +50,16 @@ export const CHECK_RELEVANCE_TOOL: Anthropic.Tool = {
  * returns 502; SilpoAgentService.checkRelevance fails open to `true` instead,
  * since this is a safety net layered on top of the real search, not a hard
  * gate).
+ *
+ * onUsage is optional and purely observational (e.g. the control-plane
+ * journal) — existing callers that don't pass it keep behaving exactly as
+ * before.
  */
 export async function checkRelevanceWithClient(
   client: Anthropic,
   query: string,
   candidateName: string,
+  onUsage?: (usage: LlmUsage) => void,
 ): Promise<boolean> {
   const response = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
@@ -65,6 +73,12 @@ export async function checkRelevanceWithClient(
         content: `Запит: "${query.trim()}"\nЗнайдений товар: "${candidateName.trim()}"`,
       },
     ],
+  });
+
+  onUsage?.({
+    model: response.model,
+    inputTokens: response.usage.input_tokens,
+    outputTokens: response.usage.output_tokens,
   });
 
   const toolUse = response.content.find(

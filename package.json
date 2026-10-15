@@ -8,6 +8,7 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
+    "test:lib": "vitest run --config vitest.lib.config.ts",
     "eval": "tsx evals/runner.ts"
   },
   "private": true,

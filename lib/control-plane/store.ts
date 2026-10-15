@@ -3,10 +3,12 @@ import type { Run, Step } from './types';
 
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 const MAX_RUNS_PER_SESSION = 50;
+const LOCK_TTL_SECONDS = 60;
 
 const runKey = (runId: string) => `cp:run:${runId}`;
 const runStepsKey = (runId: string) => `cp:run:${runId}:steps`;
 const sessionRunsKey = (sessionId: string) => `cp:session:${sessionId}:runs`;
+const runLockKey = (runId: string) => `cp:run:${runId}:lock`;
 
 export async function createRun(sessionId: string, input: Run['input']): Promise<Run> {
   const redis = getRedis();
@@ -80,4 +82,16 @@ export async function listRuns(sessionId: string, limit = 20): Promise<Run[]> {
   const runs = await Promise.all(ids.map((id) => redis.get<Run>(runKey(id))));
 
   return runs.filter((run): run is Run => run !== null);
+}
+
+// Same SET-NX-EX pattern as acquireClientRegistrationLock (lib/mcp/redis.ts)
+// — a short-lived mutex so two concurrent /advance calls for the same run
+// can't both execute a step at once.
+export async function acquireRunLock(runId: string): Promise<boolean> {
+  const result = await getRedis().set(runLockKey(runId), '1', { nx: true, ex: LOCK_TTL_SECONDS });
+  return result === 'OK';
+}
+
+export async function releaseRunLock(runId: string): Promise<void> {
+  await getRedis().del(runLockKey(runId));
 }

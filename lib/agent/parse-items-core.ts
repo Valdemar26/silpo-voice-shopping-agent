@@ -104,13 +104,27 @@ export const EXTRACT_ITEMS_TOOL: Anthropic.Tool = {
   },
 };
 
+export interface LlmUsage {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+}
+
 /**
  * Free Ukrainian text -> validated, normalized list of cart actions, via the
  * real production system prompt/tool schema. Throws on any malformed model
  * response — callers (the edge handler, evals/runner.ts) decide how to
  * surface that.
+ *
+ * onUsage is optional and purely observational (e.g. the control-plane
+ * journal) — existing callers that don't pass it keep behaving exactly as
+ * before.
  */
-export async function parseItemsWithClient(client: Anthropic, text: string): Promise<ParsedItem[]> {
+export async function parseItemsWithClient(
+  client: Anthropic,
+  text: string,
+  onUsage?: (usage: LlmUsage) => void,
+): Promise<ParsedItem[]> {
   const response = await client.messages.create({
     model: 'claude-opus-5',
     max_tokens: 1024,
@@ -119,6 +133,12 @@ export async function parseItemsWithClient(client: Anthropic, text: string): Pro
     tools: [EXTRACT_ITEMS_TOOL],
     tool_choice: { type: 'tool', name: 'extract_search_queries' },
     messages: [{ role: 'user', content: text }],
+  });
+
+  onUsage?.({
+    model: response.model,
+    inputTokens: response.usage.input_tokens,
+    outputTokens: response.usage.output_tokens,
   });
 
   const toolUse = response.content.find(
