@@ -29,13 +29,13 @@ export default async function handler(req: Request): Promise<Response> {
 
   const runId = runIdFromPath(req);
 
-  const existing = await getRunWithSteps(runId);
-  if (!existing || existing.run.sessionId !== session.sessionId) {
+  // Only for the session/existence check — a 404 for the wrong session or a
+  // missing run doesn't need the lock. The journal itself is re-read below,
+  // under the lock, and that re-read copy is the only one planNext/executeStep
+  // ever see.
+  const precheck = await getRunWithSteps(runId);
+  if (!precheck || precheck.run.sessionId !== session.sessionId) {
     return withSessionCookie(json({ error: 'Run not found' }, 404), session);
-  }
-
-  if (TERMINAL_STATUSES.has(existing.run.status)) {
-    return withSessionCookie(json(existing, 200), session);
   }
 
   const locked = await acquireRunLock(runId);
@@ -44,15 +44,25 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   try {
-    const decision = planNext(existing.run, existing.steps);
+    // Re-read after acquiring the lock: a concurrent advance() that ran
+    // between the precheck above and this lock could have appended a step
+    // and changed the run's status, so the precheck copy may already be
+    // stale. Planning against it would risk re-executing a step another
+    // request already completed.
+    const current = await getRunWithSteps(runId);
+    if (!current) {
+      return withSessionCookie(json({ error: 'Run not found' }, 404), session);
+    }
 
-    // Already fully planned out with nothing left to do — finalize's own
-    // success (below) is what actually flips the run to 'succeeded', so
-    // reaching 'done' here on a non-terminal run is only a defensive
-    // fallback (e.g. a run whose last advance crashed between appendStep and
-    // updateRun).
+    if (TERMINAL_STATUSES.has(current.run.status)) {
+      return withSessionCookie(json(current, 200), session);
+    }
+
+    const decision = planNext(current.run, current.steps);
+
     if (decision.kind === 'done') {
-      return withSessionCookie(json(existing, 200), session);
+      const updatedRun = await updateRun(runId, { status: 'succeeded', currentStep: undefined });
+      return withSessionCookie(json({ run: updatedRun, steps: current.steps }, 200), session);
     }
 
     await updateRun(runId, { status: 'running', currentStep: decision.kind });
@@ -63,7 +73,7 @@ export default async function handler(req: Request): Promise<Response> {
       anthropicClient: apiKey ? new Anthropic({ apiKey }) : undefined,
     };
 
-    const newStepData = await executeStep(existing.run, existing.steps, decision, ctx);
+    const newStepData = await executeStep(current.run, current.steps, decision, ctx);
     const newStep = await appendStep(newStepData);
 
     const updatedRun =
@@ -73,7 +83,7 @@ export default async function handler(req: Request): Promise<Response> {
           ? await updateRun(runId, { status: 'succeeded', currentStep: undefined })
           : await updateRun(runId, { status: 'running', currentStep: newStep.kind });
 
-    return withSessionCookie(json({ run: updatedRun, steps: [...existing.steps, newStep] }, 200), session);
+    return withSessionCookie(json({ run: updatedRun, steps: [...current.steps, newStep] }, 200), session);
   } catch (e) {
     return withSessionCookie(errorResponse(e), session);
   } finally {
