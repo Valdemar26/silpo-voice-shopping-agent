@@ -72,7 +72,7 @@ vi.mock('@upstash/redis', () => {
 process.env['UPSTASH_REDIS_REST_URL'] = 'https://fake-upstash.example';
 process.env['UPSTASH_REDIS_REST_TOKEN'] = 'fake-token';
 
-import { getClientCredentials, getTokens, saveClientCredentials, saveTokens } from './redis';
+import { getClientCredentials, getMcpSessionId, getTokens, saveClientCredentials, saveMcpSessionId, saveTokens } from './redis';
 import { ensureValidAccessToken, ReauthRequiredError, TOKEN_ENDPOINT } from './oauth';
 
 const SESSION_ID = 'session-1';
@@ -130,5 +130,57 @@ describe('ensureValidAccessToken', () => {
 
     expect(await getClientCredentials()).toBeNull();
     expect(await getTokens(SESSION_ID)).toBeNull();
+  });
+
+  it('invalid_grant from the refresh call deletes the session tokens and mcp session id, and throws ReauthRequiredError', async () => {
+    await saveClientCredentials({ client_id: 'client-1' });
+    await saveTokens(SESSION_ID, {
+      access_token: 'old-token',
+      refresh_token: 'refresh-token',
+      expires_at: Date.now() - 10_000,
+    });
+    await saveMcpSessionId(SESSION_ID, 'transport-session-1');
+
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+      ok: false,
+      status: 400,
+      json: async () => ({}),
+      text: async () => JSON.stringify({ error: 'invalid_grant' }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(ensureValidAccessToken(SESSION_ID)).rejects.toThrow(ReauthRequiredError);
+
+    expect(await getTokens(SESSION_ID)).toBeNull();
+    expect(await getMcpSessionId(SESSION_ID)).toBeNull();
+  });
+
+  it('a 500 from the refresh call leaves the session tokens untouched', async () => {
+    await saveClientCredentials({ client_id: 'client-1' });
+    const staleTokens = {
+      access_token: 'old-token',
+      refresh_token: 'refresh-token',
+      expires_at: Date.now() - 10_000,
+    };
+    await saveTokens(SESSION_ID, staleTokens);
+
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+      ok: false,
+      status: 500,
+      json: async () => ({}),
+      text: async () => 'internal server error',
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    let caught: unknown;
+    try {
+      await ensureValidAccessToken(SESSION_ID);
+    } catch (e) {
+      caught = e;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught).not.toBeInstanceOf(ReauthRequiredError);
+    expect(await getTokens(SESSION_ID)).toEqual(staleTokens);
   });
 });

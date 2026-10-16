@@ -1,5 +1,6 @@
 import { acquireLock, releaseLock, setIfLockHeld } from '../redis-lock';
 import {
+  clearMcpSessionId,
   deleteClientCredentials,
   deleteTokens,
   getClientCredentials,
@@ -205,6 +206,16 @@ export async function refreshTokens(sessionId: string, refreshToken: string): Pr
       await deleteTokens(sessionId);
       throw new ReauthRequiredError('Silpo rejected the registered OAuth client during token refresh');
     }
+    if (errorCode === 'invalid_grant') {
+      // The refresh token itself is dead (revoked/expired/already used) — only
+      // a fresh /api/mcp/auth/login can produce a usable one, so the MCP
+      // transport session tied to the old tokens is dead too.
+      await deleteTokens(sessionId);
+      await clearMcpSessionId(sessionId);
+      throw new ReauthRequiredError('Silpo refresh token is no longer valid');
+    }
+    // Any other failure (5xx, network error, timeout) is presumed transient —
+    // tokens stay put so the next attempt can retry with the same refresh token.
     throw new Error(`Token refresh failed: ${response.status} ${errorBody}`);
   }
 

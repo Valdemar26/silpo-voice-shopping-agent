@@ -5,6 +5,13 @@
   </header>
 
   <main>
+    @if (agent.reauthRequired()) {
+      <p class="reauth-banner" data-cy="reauth-banner" role="alert">
+        Сесію Сільпо потрібно оновити.
+        <a href="/api/mcp/auth/login">Увійти в Сільпо</a>
+      </p>
+    }
+
     @if (showEnglishIntro()) {
       <details class="english-intro" data-cy="english-intro" open>
         <summary>What is this?</summary>

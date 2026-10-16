@@ -45,6 +45,12 @@ export class SilpoAgentService {
   readonly result = signal<CartState | null>(null);
   readonly running = signal(false);
 
+  // Set once any API call comes back with { code: 'reauth_required' } (the
+  // stored Silpo session is unrecoverably dead — see lib/mcp/oauth.ts's
+  // ReauthRequiredError) — prompts the user to go through /api/mcp/auth/login
+  // again instead of silently failing every subsequent call.
+  readonly reauthRequired = signal(false);
+
   readonly removingProductIds = signal<ReadonlySet<string>>(new Set());
   readonly removeError = signal<string | null>(null);
 
@@ -247,6 +253,7 @@ export class SilpoAgentService {
       const data = await response.json();
 
       if (!response.ok) {
+        this.flagReauthIfNeeded(data);
         this.clearCartError.set(data?.error ?? `HTTP ${response.status}`);
         return false;
       }
@@ -276,6 +283,7 @@ export class SilpoAgentService {
       const data = await response.json();
 
       if (!response.ok) {
+        this.flagReauthIfNeeded(data);
         return { error: data?.error ?? `HTTP ${response.status}` };
       }
 
@@ -301,6 +309,7 @@ export class SilpoAgentService {
       const data = await response.json();
 
       if (!response.ok) {
+        this.flagReauthIfNeeded(data);
         return { error: data?.error ?? `HTTP ${response.status}` };
       }
 
@@ -448,6 +457,7 @@ export class SilpoAgentService {
       const data = await response.json();
 
       if (!response.ok) {
+        this.flagReauthIfNeeded(data);
         this.updateStep(stepId, { status: 'error', detail: data?.error ?? `HTTP ${response.status}` });
         return null;
       }
@@ -456,6 +466,15 @@ export class SilpoAgentService {
     } catch (e) {
       this.updateStep(stepId, { status: 'error', detail: e instanceof Error ? e.message : 'Мережева помилка' });
       return null;
+    }
+  }
+
+  // Marks the stored Silpo session as unrecoverably dead so the template can
+  // offer a way back in — see ReauthRequiredError in lib/mcp/oauth.ts and its
+  // { code: 'reauth_required' } mapping in lib/mcp/http.ts.
+  private flagReauthIfNeeded(data: unknown): void {
+    if (typeof data === 'object' && data !== null && (data as { code?: unknown }).code === 'reauth_required') {
+      this.reauthRequired.set(true);
     }
   }
 
