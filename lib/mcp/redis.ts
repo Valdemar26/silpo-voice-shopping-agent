@@ -28,7 +28,6 @@ export interface McpTokens {
 }
 
 const CLIENT_KEY = 'mcp:client';
-const CLIENT_LOCK_KEY = 'mcp:client:lock';
 // Keyed by the per-browser session id (lib/mcp/session.ts) — was a single
 // fixed key ('mcp:tokens:default') back when this was a single-user
 // deployment. mcp:client above stays global on purpose: it's the one
@@ -49,15 +48,6 @@ export async function getClientCredentials(): Promise<McpClientCredentials | nul
 
 export async function saveClientCredentials(creds: McpClientCredentials): Promise<void> {
   await getRedis().set(CLIENT_KEY, creds);
-}
-
-export async function acquireClientRegistrationLock(): Promise<boolean> {
-  const result = await getRedis().set(CLIENT_LOCK_KEY, '1', { nx: true, ex: 30 });
-  return result === 'OK';
-}
-
-export async function releaseClientRegistrationLock(): Promise<void> {
-  await getRedis().del(CLIENT_LOCK_KEY);
 }
 
 export async function getTokens(sessionId: string): Promise<McpTokens | null> {

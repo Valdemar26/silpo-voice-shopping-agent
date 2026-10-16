@@ -1,18 +1,13 @@
-import {
-  acquireClientRegistrationLock,
-  getClientCredentials,
-  getTokens,
-  McpClientCredentials,
-  McpTokens,
-  releaseClientRegistrationLock,
-  saveClientCredentials,
-  saveTokens,
-} from './redis';
+import { acquireLock, releaseLock } from '../redis-lock';
+import { getClientCredentials, getTokens, McpClientCredentials, McpTokens, saveClientCredentials, saveTokens } from './redis';
 
 // From https://mcp.silpo.ua/.well-known/oauth-authorization-server
 export const AUTHORIZATION_ENDPOINT = 'https://mcp.silpo.ua/authorize';
 export const TOKEN_ENDPOINT = 'https://mcp.silpo.ua/token';
 export const REGISTRATION_ENDPOINT = 'https://mcp.silpo.ua/register';
+
+const CLIENT_LOCK_KEY = 'mcp:client:lock';
+const CLIENT_LOCK_TTL_SECONDS = 30;
 
 // Only S256 is used for PKCE. The server also advertises "plain", but that method
 // sends the verifier in the clear and defeats the point of PKCE — never use it.
@@ -42,8 +37,8 @@ export async function ensureClientRegistered(): Promise<McpClientCredentials> {
   const existing = await getClientCredentials();
   if (existing) return existing;
 
-  const gotLock = await acquireClientRegistrationLock();
-  if (!gotLock) {
+  const lockToken = await acquireLock(CLIENT_LOCK_KEY, CLIENT_LOCK_TTL_SECONDS);
+  if (!lockToken) {
     // Another request is mid-registration. Give it a moment and use its result
     // instead of racing to register a second client.
     await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -81,7 +76,7 @@ export async function ensureClientRegistered(): Promise<McpClientCredentials> {
     await saveClientCredentials(creds);
     return creds;
   } finally {
-    await releaseClientRegistrationLock();
+    await releaseLock(CLIENT_LOCK_KEY, lockToken);
   }
 }
 

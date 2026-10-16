@@ -38,8 +38,8 @@ export default async function handler(req: Request): Promise<Response> {
     return withSessionCookie(json({ error: 'Run not found' }, 404), session);
   }
 
-  const locked = await acquireRunLock(runId);
-  if (!locked) {
+  const lockToken = await acquireRunLock(runId);
+  if (!lockToken) {
     return withSessionCookie(json({ error: 'Run is already being advanced' }, 409), session);
   }
 
@@ -87,6 +87,6 @@ export default async function handler(req: Request): Promise<Response> {
   } catch (e) {
     return withSessionCookie(errorResponse(e), session);
   } finally {
-    await releaseRunLock(runId);
+    await releaseRunLock(runId, lockToken);
   }
 }
