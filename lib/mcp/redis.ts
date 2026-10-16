@@ -27,6 +27,13 @@ export interface McpTokens {
   expires_at: number; // epoch ms
 }
 
+// Silpo's refresh-token lifetime isn't documented anywhere — this is an
+// assumption. Access tokens we've actually seen (expires_in, checked live in
+// Redis) run ~30 days, so the tokens key needs to outlive at least that or it
+// could vanish before a refresh ever gets a chance to run; 90 days gives
+// margin on top without keeping dead sessions around indefinitely.
+export const TOKENS_TTL_SECONDS = 90 * 24 * 60 * 60;
+
 const CLIENT_KEY = 'mcp:client';
 // Keyed by the per-browser session id (lib/mcp/session.ts) — was a single
 // fixed key ('mcp:tokens:default') back when this was a single-user
@@ -62,7 +69,7 @@ export async function getTokens(sessionId: string): Promise<McpTokens | null> {
 }
 
 export async function saveTokens(sessionId: string, tokens: McpTokens): Promise<void> {
-  await getRedis().set(tokensKey(sessionId), tokens);
+  await getRedis().set(tokensKey(sessionId), tokens, { ex: TOKENS_TTL_SECONDS });
 }
 
 export async function deleteTokens(sessionId: string): Promise<void> {

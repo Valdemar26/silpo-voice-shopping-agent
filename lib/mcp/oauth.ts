@@ -9,6 +9,7 @@ import {
   McpTokens,
   saveClientCredentials,
   tokensKey,
+  TOKENS_TTL_SECONDS,
 } from './redis';
 
 // Thrown when Silpo's token endpoint rejects our registered client or the
@@ -297,7 +298,7 @@ export async function ensureValidAccessToken(
     }
 
     const refreshed = await refreshTokens(sessionId, current.refresh_token);
-    const wrote = await setIfLockHeld(lockKey, lockToken, tokensKey(sessionId), refreshed);
+    const wrote = await setIfLockHeld(lockKey, lockToken, tokensKey(sessionId), refreshed, TOKENS_TTL_SECONDS);
     if (wrote) return refreshed.access_token;
 
     // Our lock expired mid-refresh (TTL ran out under a slow upstream call).
