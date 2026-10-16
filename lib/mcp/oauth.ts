@@ -1,5 +1,24 @@
 import { acquireLock, releaseLock, setIfLockHeld } from '../redis-lock';
-import { getClientCredentials, getTokens, McpClientCredentials, McpTokens, saveClientCredentials, tokensKey } from './redis';
+import {
+  deleteClientCredentials,
+  deleteTokens,
+  getClientCredentials,
+  getTokens,
+  McpClientCredentials,
+  McpTokens,
+  saveClientCredentials,
+  tokensKey,
+} from './redis';
+
+// Thrown when Silpo's token endpoint rejects our registered client or the
+// stored refresh token outright (not a transient failure) — the caller
+// cannot recover without sending the user through /api/mcp/auth/login again.
+export class ReauthRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ReauthRequiredError';
+  }
+}
 
 // From https://mcp.silpo.ua/.well-known/oauth-authorization-server
 export const AUTHORIZATION_ENDPOINT = 'https://mcp.silpo.ua/authorize';
@@ -46,6 +65,24 @@ async function readErrorBody(response: Response): Promise<string> {
     return await response.text();
   } catch {
     return '<unreadable body>';
+  }
+}
+
+// OAuth error responses are JSON with an `error` field (RFC 6749 §5.2), e.g.
+// {"error":"invalid_client"} — used to tell "client/grant rejected outright"
+// apart from a transient failure, which needs a different recovery (see
+// ReauthRequiredError above).
+async function readTokenEndpointError(response: Response): Promise<{ code?: string; body: string }> {
+  const body = await readErrorBody(response);
+  try {
+    const parsed: unknown = JSON.parse(body);
+    const code =
+      typeof parsed === 'object' && parsed !== null && typeof (parsed as { error?: unknown }).error === 'string'
+        ? (parsed as { error: string }).error
+        : undefined;
+    return { code, body };
+  } catch {
+    return { body };
   }
 }
 
@@ -110,7 +147,7 @@ function toTokens(data: {
   };
 }
 
-export async function exchangeCodeForTokens(code: string, codeVerifier: string): Promise<McpTokens> {
+export async function exchangeCodeForTokens(sessionId: string, code: string, codeVerifier: string): Promise<McpTokens> {
   const creds = await getClientCredentials();
   if (!creds) throw new Error('MCP client is not registered — call ensureClientRegistered() first');
 
@@ -131,13 +168,19 @@ export async function exchangeCodeForTokens(code: string, codeVerifier: string):
   });
 
   if (!response.ok) {
-    throw new Error(`Token exchange failed: ${response.status} ${await readErrorBody(response)}`);
+    const { code: errorCode, body: errorBody } = await readTokenEndpointError(response);
+    if (errorCode === 'invalid_client') {
+      await deleteClientCredentials();
+      await deleteTokens(sessionId);
+      throw new ReauthRequiredError('Silpo rejected the registered OAuth client during code exchange');
+    }
+    throw new Error(`Token exchange failed: ${response.status} ${errorBody}`);
   }
 
   return toTokens(await response.json());
 }
 
-export async function refreshTokens(refreshToken: string): Promise<McpTokens> {
+export async function refreshTokens(sessionId: string, refreshToken: string): Promise<McpTokens> {
   const creds = await getClientCredentials();
   if (!creds) throw new Error('MCP client is not registered — call ensureClientRegistered() first');
 
@@ -156,7 +199,13 @@ export async function refreshTokens(refreshToken: string): Promise<McpTokens> {
   });
 
   if (!response.ok) {
-    throw new Error(`Token refresh failed: ${response.status} ${await readErrorBody(response)}`);
+    const { code: errorCode, body: errorBody } = await readTokenEndpointError(response);
+    if (errorCode === 'invalid_client') {
+      await deleteClientCredentials();
+      await deleteTokens(sessionId);
+      throw new ReauthRequiredError('Silpo rejected the registered OAuth client during token refresh');
+    }
+    throw new Error(`Token refresh failed: ${response.status} ${errorBody}`);
   }
 
   const data = await response.json();
@@ -236,7 +285,7 @@ export async function ensureValidAccessToken(
       throw new Error('Access token expired and no refresh token is available — re-authenticate via /api/mcp/auth/login');
     }
 
-    const refreshed = await refreshTokens(current.refresh_token);
+    const refreshed = await refreshTokens(sessionId, current.refresh_token);
     const wrote = await setIfLockHeld(lockKey, lockToken, tokensKey(sessionId), refreshed);
     if (wrote) return refreshed.access_token;
 

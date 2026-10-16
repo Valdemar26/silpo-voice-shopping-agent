@@ -72,8 +72,8 @@ vi.mock('@upstash/redis', () => {
 process.env['UPSTASH_REDIS_REST_URL'] = 'https://fake-upstash.example';
 process.env['UPSTASH_REDIS_REST_TOKEN'] = 'fake-token';
 
-import { saveClientCredentials, saveTokens } from './redis';
-import { ensureValidAccessToken, TOKEN_ENDPOINT } from './oauth';
+import { getClientCredentials, getTokens, saveClientCredentials, saveTokens } from './redis';
+import { ensureValidAccessToken, ReauthRequiredError, TOKEN_ENDPOINT } from './oauth';
 
 const SESSION_ID = 'session-1';
 
@@ -108,5 +108,27 @@ describe('ensureValidAccessToken', () => {
     expect(b).toBe('new-token');
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls[0]?.[0]).toBe(TOKEN_ENDPOINT);
+  });
+
+  it('invalid_client from the refresh call deletes mcp:client and the session tokens, and throws ReauthRequiredError', async () => {
+    await saveClientCredentials({ client_id: 'client-1' });
+    await saveTokens(SESSION_ID, {
+      access_token: 'old-token',
+      refresh_token: 'refresh-token',
+      expires_at: Date.now() - 10_000,
+    });
+
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
+      ok: false,
+      status: 400,
+      json: async () => ({}),
+      text: async () => JSON.stringify({ error: 'invalid_client' }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(ensureValidAccessToken(SESSION_ID)).rejects.toThrow(ReauthRequiredError);
+
+    expect(await getClientCredentials()).toBeNull();
+    expect(await getTokens(SESSION_ID)).toBeNull();
   });
 });

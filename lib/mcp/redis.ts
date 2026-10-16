@@ -50,12 +50,23 @@ export async function saveClientCredentials(creds: McpClientCredentials): Promis
   await getRedis().set(CLIENT_KEY, creds);
 }
 
+// Invalid_client from the token endpoint means Silpo no longer recognizes
+// our registered DCR client — drop it so the next ensureClientRegistered()
+// call registers a fresh one instead of retrying the same rejected creds.
+export async function deleteClientCredentials(): Promise<void> {
+  await getRedis().del(CLIENT_KEY);
+}
+
 export async function getTokens(sessionId: string): Promise<McpTokens | null> {
   return getRedis().get<McpTokens>(tokensKey(sessionId));
 }
 
 export async function saveTokens(sessionId: string, tokens: McpTokens): Promise<void> {
   await getRedis().set(tokensKey(sessionId), tokens);
+}
+
+export async function deleteTokens(sessionId: string): Promise<void> {
+  await getRedis().del(tokensKey(sessionId));
 }
 
 export async function saveOauthState(state: string, codeVerifier: string): Promise<void> {

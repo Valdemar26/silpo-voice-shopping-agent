@@ -40,7 +40,7 @@ export default async function handler(req: Request): Promise<Response> {
   }
 
   try {
-    const tokens = await exchangeCodeForTokens(code, pending.code_verifier);
+    const tokens = await exchangeCodeForTokens(session.sessionId, code, pending.code_verifier);
     await saveTokens(session.sessionId, tokens);
   } catch (e) {
     return withSessionCookie(htmlError(e instanceof Error ? e.message : 'token exchange failed', 502), session);
