@@ -9,7 +9,7 @@
 **OAuth 2.1 + PKCE (S256) + Dynamic Client Registration** до `mcp.silpo.ua`
 - `lib/mcp/pkce.ts`, `oauth.ts`, `redis.ts`, `client.ts`
 - `api/mcp/auth/{register,login,callback}.ts`
-- Токени й client credentials лише в Upstash Redis (`mcp:client`, `mcp:tokens:default`), ніколи на клієнті. Single-user проєкт — фіксований ключ, без per-session cookie.
+- Токени й client credentials лише в Upstash Redis (`mcp:client`, `mcp:tokens:default`), ніколи на клієнті.
 - Refresh токена, MCP-сесія (`Mcp-Session-Id`) з автоматичним re-init при 400/404.
 
 **Пошук товарів і кошик**
