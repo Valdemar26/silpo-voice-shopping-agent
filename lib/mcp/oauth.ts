@@ -244,7 +244,13 @@ async function waitForFreshTokens(
   while (Date.now() < deadline) {
     await sleep(REFRESH_POLL_INTERVAL_MS);
     const current = await getTokens(sessionId);
-    if (current && isFresh(current, forceRefresh, staleAccessToken)) {
+    if (current === null) {
+      // The lock winner hit invalid_client/invalid_grant and deleted the
+      // tokens outright — no amount of further polling will produce a fresh
+      // one, so don't wait out the rest of the timeout.
+      throw new ReauthRequiredError('Silpo session was invalidated while waiting for a concurrent token refresh');
+    }
+    if (isFresh(current, forceRefresh, staleAccessToken)) {
       return current.access_token;
     }
   }
@@ -271,7 +277,7 @@ export async function ensureValidAccessToken(
 ): Promise<string> {
   const tokens = await getTokens(sessionId);
   if (!tokens) {
-    throw new Error('Not authenticated with Silpo MCP — visit /api/mcp/auth/login first');
+    throw new ReauthRequiredError('Not authenticated with Silpo MCP — visit /api/mcp/auth/login first');
   }
 
   if (isFresh(tokens, forceRefresh, staleAccessToken)) {
@@ -294,7 +300,7 @@ export async function ensureValidAccessToken(
     }
 
     if (!current?.refresh_token) {
-      throw new Error('Access token expired and no refresh token is available — re-authenticate via /api/mcp/auth/login');
+      throw new ReauthRequiredError('Access token expired and no refresh token is available — re-authenticate via /api/mcp/auth/login');
     }
 
     const refreshed = await refreshTokens(sessionId, current.refresh_token);
@@ -307,7 +313,7 @@ export async function ensureValidAccessToken(
     // is actually in Redis now.
     const afterLockLoss = await getTokens(sessionId);
     if (!afterLockLoss) {
-      throw new Error('Not authenticated with Silpo MCP — visit /api/mcp/auth/login first');
+      throw new ReauthRequiredError('Not authenticated with Silpo MCP — visit /api/mcp/auth/login first');
     }
     return afterLockLoss.access_token;
   } finally {

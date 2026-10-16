@@ -72,7 +72,16 @@ vi.mock('@upstash/redis', () => {
 process.env['UPSTASH_REDIS_REST_URL'] = 'https://fake-upstash.example';
 process.env['UPSTASH_REDIS_REST_TOKEN'] = 'fake-token';
 
-import { getClientCredentials, getMcpSessionId, getTokens, saveClientCredentials, saveMcpSessionId, saveTokens } from './redis';
+import { acquireLock } from '../redis-lock';
+import {
+  deleteTokens,
+  getClientCredentials,
+  getMcpSessionId,
+  getTokens,
+  saveClientCredentials,
+  saveMcpSessionId,
+  saveTokens,
+} from './redis';
 import { ensureValidAccessToken, ReauthRequiredError, TOKEN_ENDPOINT } from './oauth';
 
 const SESSION_ID = 'session-1';
@@ -182,5 +191,27 @@ describe('ensureValidAccessToken', () => {
     expect(caught).toBeInstanceOf(Error);
     expect(caught).not.toBeInstanceOf(ReauthRequiredError);
     expect(await getTokens(SESSION_ID)).toEqual(staleTokens);
+  });
+
+  it('a waiter whose tokens get deleted while it polls throws ReauthRequiredError instead of waiting out the full timeout', async () => {
+    await saveTokens(SESSION_ID, {
+      access_token: 'old-token',
+      refresh_token: 'refresh-token',
+      expires_at: Date.now() - 10_000,
+    });
+
+    // Simulate another request already holding the refresh lock, so this
+    // call takes the waiter/poll path instead of racing for it.
+    const lockToken = await acquireLock(`mcp:refresh:lock:${SESSION_ID}`, 15);
+    expect(lockToken).not.toBeNull();
+
+    const waiterPromise = ensureValidAccessToken(SESSION_ID);
+    // The (simulated) lock holder hits invalid_client/invalid_grant and
+    // deletes the tokens before the waiter's first poll tick fires.
+    await deleteTokens(SESSION_ID);
+
+    const start = Date.now();
+    await expect(waiterPromise).rejects.toThrow(ReauthRequiredError);
+    expect(Date.now() - start).toBeLessThan(1000);
   });
 });
