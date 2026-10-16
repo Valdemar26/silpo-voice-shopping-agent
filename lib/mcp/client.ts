@@ -136,7 +136,7 @@ export async function callMcpTool(sessionId: string, name: string, args: Record<
   let response = await postRpc(accessToken, mcpSessionId, rpcBody);
 
   if (response.status === 401) {
-    accessToken = await ensureValidAccessToken(sessionId, true);
+    accessToken = await ensureValidAccessToken(sessionId, true, accessToken);
     response = await postRpc(accessToken, mcpSessionId, rpcBody);
   }
 

@@ -11,10 +11,15 @@ return 0
 `;
 
 // Same race as release, but for a conditional write: only SET the data key
-// while we still provably hold the lock.
+// while we still provably hold the lock. ARGV[3] == "" means "no TTL" (a
+// plain SET) — Lua has no way to pass "omit this argument" otherwise.
 const SET_IF_LOCK_HELD_SCRIPT = `
 if redis.call("get", KEYS[1]) == ARGV[1] then
-  redis.call("set", KEYS[2], ARGV[2], "EX", ARGV[3])
+  if ARGV[3] == "" then
+    redis.call("set", KEYS[2], ARGV[2])
+  else
+    redis.call("set", KEYS[2], ARGV[2], "EX", ARGV[3])
+  end
   return 1
 end
 return 0
@@ -46,18 +51,20 @@ export async function releaseLock(key: string, token: string): Promise<void> {
  * per-element serializer the Upstash client uses for a plain `.set(key,
  * value)` call, so a value written this way is read back by `getRedis().get()`
  * exactly like one written via `.set()` — callers can mix the two freely.
+ * Omit `ttlSeconds` for a write with no expiry (same as `.set()` with no
+ * `ex` option).
  */
 export async function setIfLockHeld(
   lockKey: string,
   token: string,
   dataKey: string,
   value: unknown,
-  ttlSeconds: number,
+  ttlSeconds?: number,
 ): Promise<boolean> {
   const result = await getRedis().eval<[string, unknown, string], number>(
     SET_IF_LOCK_HELD_SCRIPT,
     [lockKey, dataKey],
-    [token, value, String(ttlSeconds)],
+    [token, value, ttlSeconds === undefined ? '' : String(ttlSeconds)],
   );
   return result === 1;
 }

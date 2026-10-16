@@ -1,5 +1,5 @@
-import { acquireLock, releaseLock } from '../redis-lock';
-import { getClientCredentials, getTokens, McpClientCredentials, McpTokens, saveClientCredentials, saveTokens } from './redis';
+import { acquireLock, releaseLock, setIfLockHeld } from '../redis-lock';
+import { getClientCredentials, getTokens, McpClientCredentials, McpTokens, saveClientCredentials, tokensKey } from './redis';
 
 // From https://mcp.silpo.ua/.well-known/oauth-authorization-server
 export const AUTHORIZATION_ENDPOINT = 'https://mcp.silpo.ua/authorize';
@@ -14,6 +14,22 @@ const CLIENT_LOCK_TTL_SECONDS = 30;
 export const CODE_CHALLENGE_METHOD = 'S256';
 
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
+
+// Guards against a hung TOKEN_ENDPOINT/REGISTRATION_ENDPOINT call outliving
+// the refresh/registration lock it's running under (both locks' TTLs are
+// well above this, so a timeout here always fires before the lock could
+// expire out from under us).
+const UPSTREAM_FETCH_TIMEOUT_MS = 10_000;
+
+const REFRESH_LOCK_TTL_SECONDS = 15;
+const REFRESH_POLL_INTERVAL_MS = 250;
+const REFRESH_POLL_TIMEOUT_MS = 5_000;
+
+const refreshLockKey = (sessionId: string): string => `mcp:refresh:lock:${sessionId}`;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function requireAppBaseUrl(): string {
   const url = process.env['APP_BASE_URL'];
@@ -62,6 +78,7 @@ export async function ensureClientRegistered(): Promise<McpClientCredentials> {
         response_types: ['code'],
         client_name: 'Silpo Voice Ordering Agent',
       }),
+      signal: AbortSignal.timeout(UPSTREAM_FETCH_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -110,6 +127,7 @@ export async function exchangeCodeForTokens(code: string, codeVerifier: string):
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
+    signal: AbortSignal.timeout(UPSTREAM_FETCH_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -134,6 +152,7 @@ export async function refreshTokens(refreshToken: string): Promise<McpTokens> {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
+    signal: AbortSignal.timeout(UPSTREAM_FETCH_TIMEOUT_MS),
   });
 
   if (!response.ok) {
@@ -145,26 +164,92 @@ export async function refreshTokens(refreshToken: string): Promise<McpTokens> {
   return toTokens({ ...data, refresh_token: data.refresh_token ?? refreshToken });
 }
 
+// With forceRefresh (called after an upstream 401), expires_at can't be
+// trusted — the server rejected a token our own clock still thinks is good —
+// so "fresh" instead means "no longer the token that got the 401".
+function isFresh(tokens: McpTokens, forceRefresh: boolean, staleAccessToken: string | undefined): boolean {
+  if (forceRefresh) return tokens.access_token !== staleAccessToken;
+  return tokens.expires_at - TOKEN_EXPIRY_SKEW_MS > Date.now();
+}
+
+// Lost the race for the refresh lock: poll Redis for whatever the winner
+// writes instead of refreshing ourselves too.
+async function waitForFreshTokens(
+  sessionId: string,
+  forceRefresh: boolean,
+  staleAccessToken: string | undefined,
+): Promise<string> {
+  const deadline = Date.now() + REFRESH_POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await sleep(REFRESH_POLL_INTERVAL_MS);
+    const current = await getTokens(sessionId);
+    if (current && isFresh(current, forceRefresh, staleAccessToken)) {
+      return current.access_token;
+    }
+  }
+  throw new Error('Timed out waiting for a concurrent token refresh to finish');
+}
+
 /**
- * Returns a valid access token, transparently refreshing it when it is missing
- * or close to expiry. Pass `forceRefresh` after an upstream 401 to skip the
- * (possibly stale) cached expiry check.
+ * Returns a valid access token, transparently refreshing it when it is
+ * missing or close to expiry. Pass `forceRefresh` + the access token that
+ * just got a 401 from upstream to skip the (possibly stale) cached expiry
+ * check — "fresh" then means "different from that token" rather than
+ * "expires_at says so".
+ *
+ * Concurrent callers for the same session serialize on
+ * `mcp:refresh:lock:{sessionId}`: the lock winner does the actual refresh,
+ * everyone else polls Redis for the result instead of refreshing too (which
+ * would burn the refresh token twice and likely get one caller a 400 from
+ * Silpo).
  */
-export async function ensureValidAccessToken(sessionId: string, forceRefresh = false): Promise<string> {
+export async function ensureValidAccessToken(
+  sessionId: string,
+  forceRefresh = false,
+  staleAccessToken?: string,
+): Promise<string> {
   const tokens = await getTokens(sessionId);
   if (!tokens) {
     throw new Error('Not authenticated with Silpo MCP — visit /api/mcp/auth/login first');
   }
 
-  if (!forceRefresh && tokens.expires_at - TOKEN_EXPIRY_SKEW_MS > Date.now()) {
+  if (isFresh(tokens, forceRefresh, staleAccessToken)) {
     return tokens.access_token;
   }
 
-  if (!tokens.refresh_token) {
-    throw new Error('Access token expired and no refresh token is available — re-authenticate via /api/mcp/auth/login');
+  const lockKey = refreshLockKey(sessionId);
+  const lockToken = await acquireLock(lockKey, REFRESH_LOCK_TTL_SECONDS);
+
+  if (!lockToken) {
+    return waitForFreshTokens(sessionId, forceRefresh, staleAccessToken);
   }
 
-  const refreshed = await refreshTokens(tokens.refresh_token);
-  await saveTokens(sessionId, refreshed);
-  return refreshed.access_token;
+  try {
+    // Re-read under the lock: another request may have already refreshed
+    // while we were acquiring it.
+    const current = await getTokens(sessionId);
+    if (current && isFresh(current, forceRefresh, staleAccessToken)) {
+      return current.access_token;
+    }
+
+    if (!current?.refresh_token) {
+      throw new Error('Access token expired and no refresh token is available — re-authenticate via /api/mcp/auth/login');
+    }
+
+    const refreshed = await refreshTokens(current.refresh_token);
+    const wrote = await setIfLockHeld(lockKey, lockToken, tokensKey(sessionId), refreshed);
+    if (wrote) return refreshed.access_token;
+
+    // Our lock expired mid-refresh (TTL ran out under a slow upstream call).
+    // Someone else may already be refreshing — or have refreshed — on our
+    // behalf, so don't trust the result we just computed; defer to whatever
+    // is actually in Redis now.
+    const afterLockLoss = await getTokens(sessionId);
+    if (!afterLockLoss) {
+      throw new Error('Not authenticated with Silpo MCP — visit /api/mcp/auth/login first');
+    }
+    return afterLockLoss.access_token;
+  } finally {
+    await releaseLock(lockKey, lockToken);
+  }
 }

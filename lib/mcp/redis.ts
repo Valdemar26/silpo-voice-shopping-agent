@@ -33,7 +33,7 @@ const CLIENT_KEY = 'mcp:client';
 // deployment. mcp:client above stays global on purpose: it's the one
 // Dynamic-Client-Registration credential shared by every visitor, not
 // per-user data.
-const tokensKey = (sessionId: string) => `mcp:tokens:${sessionId}`;
+export const tokensKey = (sessionId: string): string => `mcp:tokens:${sessionId}`;
 // This is the MCP *transport* session (the Mcp-Session-Id header
 // mcp.silpo.ua hands back from `initialize`), tied 1:1 to whichever access
 // token established it — so it must be keyed by the same per-browser
