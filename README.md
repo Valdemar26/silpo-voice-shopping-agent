@@ -1,69 +1,171 @@
 # Silpo Voice Shopping Agent
 
-Voice shopping agent for Silpo (a Ukrainian grocery chain): you say what you need, and it searches the catalog, builds a real cart and hands you off to Silpo's checkout. Built with Angular 21, Vercel Edge Functions, Upstash Redis, Anthropic Claude (Opus for query parsing, Haiku for relevance checks), Web Speech API and Respeecher TTS.
+[Українська версія](README.uk.md)
 
-The non-trivial parts: a from-scratch MCP client with OAuth 2.1 + PKCE + Dynamic Client Registration and per-session tokens, plus guardrails that don't trust API success responses (branch health check, relevance check on every match, stale-slot refresh, checkout-blocker detection). Every agent step is shown as a visible trace, and an eval harness with 33 cases guards against regressions.
+Voice shopping agent for Silpo (a Ukrainian grocery chain): say what you need, and it parses the request into concrete items, searches Silpo's real catalog through their MCP server, builds a cart at a given address, and hands you off to checkout. Built for the Silpo AI Factory hackathon.
 
-Built for the Silpo AI Factory hackathon. The UI is currently Ukrainian-only.
+- **Live:** https://silpo-voice-shopping-agent.vercel.app
+- **Article:** [dev.ua](https://dev.ua/news/holosovyi-ahent-dlia-zamovlennia-u-silpo-1789557254) (article in Ukrainian)
+- **Demo video:** [YouTube](https://www.youtube.com/watch?v=W4zIgaQPTrM) (in Ukrainian, recorded for the hackathon — shows the version before the control plane: no approval step, the run is driven directly from the browser)
 
 ![Example run](public/example-run.png)
 
-Голосовий агент для замовлення продуктів у Сільпо: кажеш, що потрібно, агент сам розбирає фразу на конкретні товари, шукає їх, збирає кошик за вказаною адресою і озвучує результат.
+## Stack
 
-**Живий деплой:** https://silpo-voice-shopping-agent.vercel.app
+Angular 21 (signals, standalone components, no HttpClient — plain `fetch`) + Vercel Edge Functions (TypeScript) + Upstash Redis + Anthropic Claude (Opus for query parsing, Haiku for relevance checks) + Web Speech API + Respeecher TTS. MCP client to `https://mcp.silpo.ua/mcp` built from scratch (OAuth 2.1 + PKCE + Dynamic Client Registration, no SDK).
 
-## Що це робить
+The UI is currently Ukrainian-only.
 
-1. Береш мікрофон (або вводиш текст) і кажеш щось на кшталт «два літри молока, хліб і горішки по акції».
-2. LLM (Claude) розбирає фразу на конкретні пошукові запити з кількістю та критерієм вибору («по акції» тощо) — MCP-пошук не робить власного NLU і не приймає довільний текст.
-3. Кожен товар шукається через реальний Сільпо MCP-сервер, проходить перевірку релевантності й додається в кошик за вказаною адресою.
-4. Результат озвучується (TTS) і показується як список товарів із сумою та кнопкою «Оформити замовлення», коли кошик готовий.
+## Architecture
 
-Стек: Angular 21 (сигнали, standalone-компоненти) + Vercel Edge Functions (TypeScript) + Upstash Redis, MCP-клієнт до `https://mcp.silpo.ua/mcp`.
-
-## Архітектура
+The Angular UI (`src/app`) doesn't talk to Silpo directly — it drives a server-side run and renders whatever journal comes back:
 
 ```
-Angular UI (src/app) ──fetch──> api/mcp/*.ts, api/agent/*.ts, api/tts/*.ts (Vercel Edge)
+Angular UI (src/app) ──fetch──> api/runs.ts, api/runs/[id]/{advance,approve,retry,index}.ts (Vercel Edge)
+                                      │
+                        lib/control-plane/{plan,execute,store}.ts
                                       │
                         lib/mcp/{oauth,client,silpo-tools}.ts
                                       │
                               mcp.silpo.ua/mcp (JSON-RPC / Streamable HTTP)
 
-Upstash Redis: OAuth-токени й сесія MCP (mcp:*), per-IP rate limit (ratelimit:*)
+Upstash Redis:
+  cp:run:*, cp:session:*:runs      — run journal (lib/control-plane/store.ts)
+  mcp:client, mcp:tokens:*, mcp:session_id:*  — OAuth client + per-session tokens/MCP session
+  ratelimit:*                      — per-IP rate limiting on LLM/TTS endpoints
 ```
 
-Детальний поточний стан і відомі обмеження — `PROGRESS.md`. Повна історія реалізації, фіксів і того, як кожне рішення було перевірено — `CHANGELOG.md`.
+`POST /api/mcp/cart/items` and `POST /api/mcp/cart/clear` are also called directly by the client, outside the control plane, for actions that don't need a multi-step run: removing a single item, swapping in a discount alternative, and clearing the cart (`SilpoAgentService.removeProduct` / `switchToAlternative` / `clearCart`).
+
+`api/agent/*`, `api/mcp/products/search.ts`, and `api/mcp/cart/create.ts` are still deployed but no longer called by the UI — the parsing/search/relevance logic they used to front now lives in `lib/agent/*-core.ts` and is called directly by both the control plane (`lib/control-plane/execute.ts`) and the eval harness (`evals/runner.ts`).
+
+### Run status
+
+```mermaid
+stateDiagram-v2
+    [*] --> queued
+    queued --> running
+    running --> waiting_approval
+    waiting_approval --> running: approved
+    waiting_approval --> cancelled: rejected
+    running --> succeeded
+    running --> failed
+    failed --> running: retry (max 3)
+    queued --> cancelled: expired (30 min)
+    running --> cancelled: expired (30 min)
+    waiting_approval --> cancelled: expired (30 min)
+```
+
+The three `expired` transitions are the same check (`findResumableRun`, `lib/control-plane/store.ts`): any non-terminal run older than 30 minutes is marked `cancelled` with `error: 'expired'`, regardless of which non-terminal status it was found in.
+
+### Steps per run
+
+```mermaid
+flowchart LR
+    setup_cart --> parse --> select_product --> approval --> cart_write --> finalize
+```
+
+`select_product` and `cart_write` each run once per recognized item (`lib/control-plane/types.ts`: `StepKind`).
+
+## Control plane
+
+- **Run + journal** (`lib/control-plane/types.ts`). A `Run` is a row in Redis; its `Step[]` journal is append-only — each entry records `input` (the `PlanDecision` it executed), `output`, `toolCalls` (name/success/duration of every downstream call), `llm` (model + token counts, for steps that call Anthropic), `attempt`, and `error`/`errorCode`.
+- **One step per `POST /api/runs/[id]/advance` call.** Vercel Edge Functions have an execution time limit, and this makes recovery from an interrupted call trivial: resuming is just another call to `advance` — there's no separate "resume" code path, `planNext` (`lib/control-plane/plan.ts`) just re-derives the same decision from the journal.
+- **Approval gate** (`plan.ts` → `kind: 'approval'`, `api/runs/[id]/approve.ts`): once every item has been searched, the run pauses in `waiting_approval` until the person confirms or drops individual finds — nothing is written to the cart before that.
+- **Resume after reload**: `GET /api/runs` → `findResumableRun` (`lib/control-plane/store.ts`) returns the session's most recent non-terminal run, if any, under 30 minutes old; `SilpoAgentService.resumeIfAny()` calls this once on startup and picks the run back up.
+- **Retries**: a network error or 502/503/504 from `advance()` gets up to 3 client-side retries with backoff (500ms/1s/2s — `SilpoAgentService.postWithRetry`); a run that lands in `failed` gets a "Retry" button (`POST /api/runs/[id]/retry`), capped at 3 attempts per `(kind, itemKey)`.
 
 ## Engineering decisions
 
-Коротко про рішення, які не очевидні з самого коду:
+- **A hand-rolled orchestrator, not LangGraph or similar.** I wanted the recovery mechanism itself to be inspectable: `planNext` (`lib/control-plane/plan.ts`) is a pure function over the journal — given the same journal, it always returns the same next decision — not a library's internal state machine.
+- **Idempotency without an idempotency key, since Silpo's API doesn't have one.** `cart_write` (`lib/control-plane/execute.ts`) sets the quantity rather than adding to it (`addQuantity: false`), and reads the live cart before acting: if the picked product is already there at the right quantity, it does nothing; if it's a replace and the target is already gone (removed by an earlier, interrupted attempt), it doesn't fail — it just proceeds to add the new item.
+- **Distributed lock in Redis** (`lib/redis-lock.ts`): `acquireLock` stores a random token; release and conditional writes go through Lua scripts that only act while that same token is still the value stored — a compare-and-swap guard, not a monotonic fencing token, but the same goal: a lock past its TTL can't be used to clobber someone else's write. The HTTP timeout for calls to Silpo's token endpoint (`UPSTREAM_FETCH_TIMEOUT_MS = 10s`, `lib/mcp/oauth.ts`) is deliberately shorter than both the registration and refresh lock TTLs (30s/15s) — a hung upstream call can't outlive the lock it's running under.
+- **A check-then-act race found on review**: in `POST /api/runs/[id]/advance`, the journal used to be read before the lock was acquired — a concurrent call could append a step while the first was still waiting for the lock, so planning against the stale copy risked re-executing a step that had just completed. Fixed by re-reading the journal after acquiring the lock and planning against that copy only.
+- **OAuth** (`lib/mcp/oauth.ts`): `ensureValidAccessToken` serializes refreshes behind a per-session Redis lock — concurrent callers poll for the winner's result instead of refreshing the same token twice. `invalid_client`/`invalid_grant` from the token endpoint throw `ReauthRequiredError` (forces the person back through `/api/mcp/auth/login`); any other failure (5xx, network) leaves the stored tokens alone, since it's presumed transient. The tokens key gets a 90-day Redis TTL because Silpo's own access tokens run ~30 days (confirmed from live `expires_in` values) — the refresh token's actual lifetime isn't documented anywhere, so 90 days is a margin, not a verified fact.
+- **Fault injection for testing recovery** (`FAULT_INJECTION_SECRET` + the `x-fault-inject` header, `api/runs/[id]/advance.ts`): when both are set and match, `advance` throws right after the step's real work finishes and before it's written to the journal — simulating a process crash at the one point where recovery actually matters, without waiting for a real one. See below for how to reproduce it.
 
-- **Розпаковка MCP-відповіді не тривіальна.** JSON-RPC `tools/call` повертає `CallToolResult` (`content[]`/`structuredContent`), а не бізнес-обʼєкт напряму — `unwrapToolResult` (`lib/mcp/client.ts`) це враховує; без цього кроку весь стек мовчки отримував би `undefined`.
-- **`addQuantity` форсується у двох шарах.** `silpo_add_or_update_cart_products` за замовчуванням додає кількість до наявної, а не замінює її (недокументовано, підтверджено в Discord Сільпо) — `addQuantity: false` заданий і на call site, і на рівні низькорівневої обгортки (`addOrUpdateCartProducts`), щоб будь-який майбутній виклик лишався безпечним, навіть якщо клієнт про це забуде.
-- **Адреса існуючого кошика ніколи не приймається на віру.** `create_shopping_cart` ідемпотентний і при повторному виклику мовчки повертає вже наявний кошик, ігноруючи нову адресу — `CartAddressMismatchError` (`lib/mcp/silpo-tools.ts`) явно порівнює адреси і кидає помилку замість тихого ризику доставки не туди.
-- **Протухлий timeslot освіжається автоматично перед пошуком.** Кошик, що довго простояв, може мати error-level `timeslot` у `validations`, через що пошук товарів мовчки повертає 0 результатів для будь-якого запиту. `requireCartContext` перевіряє це й освіжає слот сам (`hasStaleTimeslot`/`refreshCartTimeslot`), тією ж логікою, що й створення кошика.
-- **«Мертва» філія — не одразу відмова.** Якщо контрольний пошук («молоко») на `DeliveryHome`-філії повертає 0 результатів, `setupCartForAddress` пробує `SelfPickup` для тієї самої адреси, перш ніж здатися (`DeadBranchError`) — обидві спроби й причина переходу видно в `trace`.
-- **Критерій «по акції» перевіряється на реальних даних, не вигадується.** `selector: "discount"` шукає серед кандидатів товар з реальним `oldPrice`/`specialPrices` із відповіді MCP; якщо жоден не на знижці — береться перший, як і без критерію, але це явно позначено в trace, а не приховано.
-- **`getCheckoutStatus` — єдина функція правди для стану кошика**, що перевіряє кілька незалежних `validations` одночасно (мінімальна сума, підтвердження повноліття, перевищення залишку, інша помилка), а не одну умову — бо Сільпо реально повертає кілька блокуючих причин одночасно, і UI та trace-крок раніше через це розходились.
-- **Підказку «додай ще N₴ і доставка подешевшає» свідомо НЕ реалізовано.** MCP повертає лише вже порахований поточний `delivery.total`, без шкали тарифних порогів — підтверджено живим експериментом (штучне підняття суми кошика справді знижує вартість доставки, але сама шкала ніде не документована й не повертається). Показати поріг без цих даних можна тільки захардкодивши вигадані числа — свідомо цього не зроблено, щоб не показувати користувачу неправдиву інформацію.
+## How to reproduce the crash-recovery demo
 
-## Побудовано з Claude Code
+Entirely from the browser console on the production site (same session cookie), **not** through the UI — if the UI is also running, it will call `advance()` on its own and either execute `cart_write` first or collide with this script's own call on the run's lock. Requires `FAULT_INJECTION_SECRET` set in Vercel Production.
 
-Проєкт розроблявся в парі з Claude Code. `CHANGELOG.md` — не список фічей, а запис верифікації: для кожного нетривіального рішення там зафіксовано, як саме воно було перевірено (живий виклик MCP, ручний прогін на проді з реальним акаунтом, симуляція через мокнутий виклик) і які межі цієї перевірки — включно з випадками, де перевірка неповна (наприклад, автоматизацією неможливо підтвердити реакцію на живий звук мікрофона через політику браузера щодо довірених жестів користувача).
+```js
+// 0. Clean slate.
+await fetch('/api/mcp/cart/clear', { method: 'POST' });
 
-## Розробка
+// 1. Create a run.
+const { run } = await (await fetch('/api/runs', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ address: '<your address>', request: 'молоко' }),
+})).json();
+const runId = run.id;
+
+// 2. Advance until it pauses for approval.
+let current;
+do {
+  current = await (await fetch(`/api/runs/${runId}/advance`, { method: 'POST' })).json();
+  console.log(current.run.status, current.next?.kind);
+} while (current.run.status !== 'waiting_approval');
+
+// 3. Approve everything found.
+const approved = await (await fetch(`/api/runs/${runId}/approve`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    approved: true,
+    approvedItemKeys: current.next.items.map((i) => i.itemKey),
+  }),
+})).json();
+console.log(approved.run.status); // 'running' — next step is cart_write
+
+// 4. "Kill the process" right between the real Silpo call and the journal write.
+const crashed = await fetch(`/api/runs/${runId}/advance`, {
+  method: 'POST',
+  headers: { 'x-fault-inject': '<FAULT_INJECTION_SECRET>' },
+});
+console.log(crashed.status); // 502
+
+// 5. Reload the page now — SilpoAgentService.resumeIfAny() finds this same
+//    run (still 'running', under 30 minutes old) and keeps driving it, no
+//    manual action needed.
+
+// 6. After the reload, inspect the journal:
+const state = await (await fetch(`/api/runs/${runId}`)).json();
+console.log(state.steps.filter((s) => s.kind === 'cart_write'));
+```
+
+What this actually shows (stated precisely, not stronger):
+- The journal has exactly **one** `cart_write` step, not two — the crashed attempt from step 4 never reached `appendStep`, so it leaves no entry at all.
+- That one step's `toolCalls` list only `getMyShoppingCart` and `getShoppingCartById` — no `addOrUpdateCartProducts` — the idempotent check in `execute.ts` saw the product already in the cart and skipped writing it again.
+- The cart itself shows the product at `quantity: 1`, not 2.
+
+This does **not** show the journal recording that the Silpo call happened before the crash — that call (step 4) never makes it into the journal at all. The evidence that it happened is indirect: the product is already in the cart, which is exactly why the retry doesn't write it again.
+
+## Evals
+
+33 cases in `evals/cases/`, run with `npm run eval`. Query parsing and relevance checking are live Anthropic calls, not mocked, so running the suite costs real API usage; product-search candidates come from a frozen fixture (not a live MCP call), so a case doesn't break when a product falls out of the catalog. There's no built-in cost tracking — the suite's actual token cost isn't reported anywhere.
+
+## Known limitations
+
+- A run is driven by the client, not a queue or background worker. Closing the tab pauses it until the next time the page opens (up to 30 minutes — see `findResumableRun`), it isn't lost.
+- The price shown on the approval panel is from when the item was searched; it can change by the time `cart_write` actually runs — there's no re-check against a fresh price.
+- Silpo's refresh-token lifetime isn't documented. The 90-day Redis TTL on stored tokens is an assumption, not a confirmed fact.
+- Tokens are stored in Redis without application-level encryption (relies on Upstash's own transport security and project isolation).
+- `failed` runs aren't included in `findResumableRun` — after a page reload they just disappear from the UI, along with the "Retry" button.
+- `verifyBranchIsHealthy` (`lib/mcp/silpo-tools.ts`) is a heuristic — a control search for "молоко" with a non-zero result — not a guarantee, and has only been exercised against branches in Lviv.
+- The UI is Ukrainian-only (there's an English intro block for non-Ukrainian browsers, nothing more).
+
+## Local development / tests
 
 ```bash
 npm install
-ng serve
+npm start         # ng serve, http://localhost:4200
+npm run test:lib  # vitest, lib/**/*.spec.ts
+npm test          # ng test
+npm run eval      # evals/runner.ts — live Anthropic calls
+npm run build
 ```
 
-Застосунок буде доступний на `http://localhost:4200/`. Локально `vercel dev` не має доступу до production-секретів (Redis/MCP/Anthropic/Respeecher) — вони налаштовані лише у Vercel Production.
+`proxy.conf.json` sends `/api` to `https://silpo-voice-shopping-agent.vercel.app` (production) — the Redis/MCP/Anthropic/Respeecher secrets aren't available locally, so `ng serve` always proxies `/api` calls to the deployed backend. The config key is the bare prefix `"/api"`, not a glob like `"/api/*"` — Angular 21's dev server runs on Vite, and the old webpack-style glob prefix silently matches nothing there.
 
-```bash
-ng build   # прод-збірка в dist/
-ng test    # unit-тести (Vitest)
-```
-
-Angular CLI (`ng generate component ...` тощо) — стандартний, деталі в [офіційній документації](https://angular.dev/tools/cli).
+Angular CLI (`ng generate component ...` etc.) is standard — see the [official docs](https://angular.dev/tools/cli).
