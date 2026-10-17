@@ -3,19 +3,21 @@ import { TtsService } from './tts';
 import { type SearchProduct } from '../../../lib/agent/pick-product';
 import {
   getCheckoutStatus,
+  getOrderDiscount,
   type CartProduct,
   type CartState,
   type CheckoutStatus,
   type SilpoCart,
   type StockExceededItem,
 } from '../../../lib/agent/cart-state';
+import { buildApprovalPrompt } from '../../../lib/agent/spoken-summary';
 import { journalToAgentSteps, type AgentStep, type StepStatus } from '../../../lib/control-plane/journal-to-steps';
-import type { FinalizeOutput, NonTerminalDecision, SelectProductOutput } from '../../../lib/control-plane/plan';
+import type { ApprovalItem, FinalizeOutput, NonTerminalDecision, SelectProductOutput } from '../../../lib/control-plane/plan';
 import type { Run, Step } from '../../../lib/control-plane/types';
 
 export type { StepStatus, AgentStep };
-export type { SearchProduct, CartProduct, CartState, CheckoutStatus, SilpoCart, StockExceededItem };
-export { getCheckoutStatus };
+export type { SearchProduct, CartProduct, CartState, CheckoutStatus, SilpoCart, StockExceededItem, ApprovalItem };
+export { getCheckoutStatus, getOrderDiscount };
 
 interface AdvanceResponse {
   run: Run;
@@ -62,104 +64,216 @@ export class SilpoAgentService {
   readonly clearingCart = signal(false);
   readonly clearCartError = signal<string | null>(null);
 
+  // Items the run is currently paused on, waiting for approve()/reject() —
+  // null whenever the run isn't sitting in 'waiting_approval'.
+  readonly pendingApproval = signal<ApprovalItem[] | null>(null);
+  readonly approving = signal(false);
+
+  // Set once createRun() succeeds; read by drive()/approve()/reject() so the
+  // advance-loop and the approval round-trip always target the same run.
+  private runId: string | null = null;
+
   // Drives the run entirely through the server control-plane
   // (lib/control-plane/{plan,execute,store}.ts via /api/runs +
-  // /api/runs/[id]/advance) instead of calling /api/mcp/*/api/agent/*
-  // directly — this method just creates the run, polls it to completion, and
-  // projects each response onto steps()/result()/discountAlternatives() via
-  // the pure journalToAgentSteps (lib/control-plane/journal-to-steps.ts).
+  // /api/runs/[id]/advance[/approve]) instead of calling /api/mcp/*/api/agent/*
+  // directly — this method just creates the run and hands off to drive(),
+  // which polls it to completion (or a waiting_approval pause).
   async run(address: string, request: string): Promise<void> {
     if (this.running()) return;
 
     this.running.set(true);
     this.steps.set([]);
     this.result.set(null);
+    this.pendingApproval.set(null);
+    this.runId = null;
 
-    try {
-      const run = await this.createRun(address, request);
-      if (!run) return;
+    const run = await this.createRun(address, request);
+    if (!run) {
+      this.running.set(false);
+      return;
+    }
+    this.runId = run.id;
 
-      // Running placeholder for setup_cart before the first advance() call
-      // even goes out — same spirit as the old addStep(...status:'running')
-      // call that used to precede each network request.
-      this.steps.set(journalToAgentSteps(run, [], { kind: 'setup_cart' }));
+    // Running placeholder for setup_cart before the first advance() call
+    // even goes out — same spirit as the old addStep(...status:'running')
+    // call that used to precede each network request.
+    this.steps.set(journalToAgentSteps(run, [], { kind: 'setup_cart' }));
 
-      let current: AdvanceResponse | null = null;
+    await this.drive();
+  }
 
-      for (let attempt = 0; attempt < MAX_ADVANCE_ATTEMPTS; attempt++) {
-        let response: Response;
-        try {
-          response = await fetch(`/api/runs/${run.id}/advance`, { method: 'POST' });
-        } catch (e) {
-          this.addAdvanceErrorStep('Мережева помилка під час виконання запуску', e);
-          return;
-        }
+  // Approve all or some of the items found so far — POSTs /approve, then (if
+  // the run resumed) keeps driving the same advance cycle onward.
+  async approve(approvedItemKeys: string[]): Promise<void> {
+    await this.respondToApproval(true, approvedItemKeys);
+  }
 
-        // Another advance() for this run is already in flight (e.g. a stray
-        // retry) — the lock is short-lived, so just wait it out instead of
-        // treating it as a real failure.
-        if (response.status === 409) {
-          await sleep(LOCK_RETRY_DELAY_MS);
-          continue;
-        }
+  // Cancels the run outright instead of writing anything to the cart.
+  async reject(): Promise<void> {
+    await this.respondToApproval(false, []);
+  }
 
-        let data: unknown;
-        try {
-          data = await response.json();
-        } catch (e) {
-          this.addAdvanceErrorStep('Невалідна відповідь сервера під час виконання запуску', e);
-          return;
-        }
+  // Shared loop for both the initial run() and the continuation after an
+  // approved approve() — calls POST .../advance until the run reaches a
+  // terminal status (handled here, running() reset to false) or pauses on
+  // 'waiting_approval' (pendingApproval() set, running() stays true — the
+  // whole run is still "in progress" from the UI's point of view).
+  private async drive(): Promise<void> {
+    const runId = this.runId;
+    if (!runId) return;
 
-        if (!response.ok) {
-          this.flagReauthIfNeeded(data);
-          this.addAdvanceErrorStep(
-            'Не вдалося продовжити виконання запуску',
-            (data as { error?: string } | null)?.error ?? `HTTP ${response.status}`,
-          );
-          return;
-        }
-
-        current = data as AdvanceResponse;
-        this.steps.set(journalToAgentSteps(current.run, current.steps, current.next));
-
-        if (current.steps.some((s) => s.errorCode === 'reauth_required')) {
-          this.reauthRequired.set(true);
-        }
-
-        if (TERMINAL_RUN_STATUSES.has(current.run.status)) break;
-      }
-
-      if (!current || !TERMINAL_RUN_STATUSES.has(current.run.status)) {
-        this.addAdvanceErrorStep('Перевищено ліміт спроб виконання запуску');
+    for (let attempt = 0; attempt < MAX_ADVANCE_ATTEMPTS; attempt++) {
+      let response: Response;
+      try {
+        response = await fetch(`/api/runs/${runId}/advance`, { method: 'POST' });
+      } catch (e) {
+        this.addAdvanceErrorStep('Мережева помилка під час виконання запуску', e);
+        this.running.set(false);
         return;
       }
 
-      // 'failed'/'cancelled' — the failing step's own error is already
-      // visible via steps(); nothing else to surface here.
-      if (current.run.status !== 'succeeded') return;
-
-      const finalizeStep = current.steps.find((s) => s.kind === 'finalize' && s.status === 'succeeded');
-      if (!finalizeStep) return;
-
-      const output = finalizeStep.output as FinalizeOutput;
-      this.result.set(output.cartState);
-      void this.tts.speak(output.spokenSummary);
-
-      for (const step of current.steps) {
-        if (step.kind !== 'select_product' || step.status !== 'succeeded') continue;
-        const selectOutput = step.output as SelectProductOutput;
-        const decision = step.input as Extract<NonTerminalDecision, { kind: 'select_product' }>;
-        // Registered regardless of the final reason — a price-anomaly pick
-        // that later fails the relevance check should still expose its
-        // alternatives, same behavior as before this moved server-side.
-        if (selectOutput.anomalyDetected || decision.item.selector === 'discount') {
-          this.registerDiscountAlternatives(selectOutput.candidates);
-        }
+      // Another advance() for this run is already in flight (e.g. a stray
+      // retry) — the lock is short-lived, so just wait it out instead of
+      // treating it as a real failure.
+      if (response.status === 409) {
+        await sleep(LOCK_RETRY_DELAY_MS);
+        continue;
       }
+
+      let data: unknown;
+      try {
+        data = await response.json();
+      } catch (e) {
+        this.addAdvanceErrorStep('Невалідна відповідь сервера під час виконання запуску', e);
+        this.running.set(false);
+        return;
+      }
+
+      if (!response.ok) {
+        this.flagReauthIfNeeded(data);
+        this.addAdvanceErrorStep(
+          'Не вдалося продовжити виконання запуску',
+          (data as { error?: string } | null)?.error ?? `HTTP ${response.status}`,
+        );
+        this.running.set(false);
+        return;
+      }
+
+      const current = data as AdvanceResponse;
+      this.steps.set(journalToAgentSteps(current.run, current.steps, current.next));
+
+      if (current.steps.some((s) => s.errorCode === 'reauth_required')) {
+        this.reauthRequired.set(true);
+      }
+
+      if (current.run.status === 'waiting_approval') {
+        const items = current.next?.kind === 'approval' ? current.next.items : [];
+        this.pendingApproval.set(items);
+        void this.tts.speak(buildApprovalPrompt(items));
+        return;
+      }
+
+      if (TERMINAL_RUN_STATUSES.has(current.run.status)) {
+        this.finalizeTerminalOutcome(current);
+        this.running.set(false);
+        return;
+      }
+    }
+
+    this.addAdvanceErrorStep('Перевищено ліміт спроб виконання запуску');
+    this.running.set(false);
+  }
+
+  // Shared by drive()'s terminal branch and respondToApproval()'s rejection
+  // branch — result()/TTS/discountAlternatives only ever come from a
+  // succeeded finalize; 'failed'/'cancelled' already show their own error via
+  // steps(), nothing else to surface here.
+  private finalizeTerminalOutcome(current: AdvanceResponse): void {
+    if (current.run.status !== 'succeeded') return;
+
+    const finalizeStep = current.steps.find((s) => s.kind === 'finalize' && s.status === 'succeeded');
+    if (!finalizeStep) return;
+
+    const output = finalizeStep.output as FinalizeOutput;
+    this.result.set(output.cartState);
+    void this.tts.speak(output.spokenSummary);
+
+    for (const step of current.steps) {
+      if (step.kind !== 'select_product' || step.status !== 'succeeded') continue;
+      const selectOutput = step.output as SelectProductOutput;
+      const decision = step.input as Extract<NonTerminalDecision, { kind: 'select_product' }>;
+      // Registered regardless of the final reason — a price-anomaly pick
+      // that later fails the relevance check should still expose its
+      // alternatives, same behavior as before this moved server-side.
+      if (selectOutput.anomalyDetected || decision.item.selector === 'discount') {
+        this.registerDiscountAlternatives(selectOutput.candidates);
+      }
+    }
+  }
+
+  private async respondToApproval(approved: boolean, approvedItemKeys: string[]): Promise<void> {
+    const runId = this.runId;
+    if (!runId || this.approving()) return;
+
+    this.approving.set(true);
+    let current: AdvanceResponse | null;
+    try {
+      current = await this.postApproval(runId, approved, approvedItemKeys);
     } finally {
+      this.approving.set(false);
+    }
+    if (!current) return;
+
+    this.pendingApproval.set(null);
+    this.steps.set(journalToAgentSteps(current.run, current.steps, current.next));
+
+    if (current.steps.some((s) => s.errorCode === 'reauth_required')) {
+      this.reauthRequired.set(true);
+    }
+
+    if (current.run.status === 'running') {
+      await this.drive();
+    } else {
+      // 'cancelled' (rejected, or an empty approved list) — terminal already.
+      this.finalizeTerminalOutcome(current);
       this.running.set(false);
     }
+  }
+
+  private async postApproval(runId: string, approved: boolean, approvedItemKeys: string[]): Promise<AdvanceResponse | null> {
+    let response: Response;
+    try {
+      response = await fetch(`/api/runs/${runId}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved, approvedItemKeys }),
+      });
+    } catch (e) {
+      this.addAdvanceErrorStep('Мережева помилка при підтвердженні', e);
+      this.running.set(false);
+      return null;
+    }
+
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch (e) {
+      this.addAdvanceErrorStep('Невалідна відповідь сервера при підтвердженні', e);
+      this.running.set(false);
+      return null;
+    }
+
+    if (!response.ok) {
+      this.flagReauthIfNeeded(data);
+      this.addAdvanceErrorStep(
+        'Не вдалося обробити підтвердження',
+        (data as { error?: string } | null)?.error ?? `HTTP ${response.status}`,
+      );
+      this.running.set(false);
+      return null;
+    }
+
+    return data as AdvanceResponse;
   }
 
   private async createRun(address: string, request: string): Promise<Run | null> {

@@ -3,12 +3,14 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { NgOptimizedImage } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { startWith } from 'rxjs';
+import { ApprovalPanelComponent } from './components/approval-panel/approval-panel';
 import { GeolocationService } from './services/geolocation';
 import { MicLevelService } from './services/mic-level';
 import {
   buildShareText,
   CartProduct,
   getCheckoutStatus,
+  getOrderDiscount,
   SearchProduct,
   SilpoAgentService,
   StockExceededItem,
@@ -18,7 +20,7 @@ import { SpeechRecognitionService, VoiceInputErrorReason } from './services/spee
 
 @Component({
   selector: 'app-root',
-  imports: [ReactiveFormsModule, NgOptimizedImage],
+  imports: [ReactiveFormsModule, NgOptimizedImage, ApprovalPanelComponent],
   templateUrl: './app.html',
   styleUrl: './app.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -155,6 +157,16 @@ export class AppComponent {
     Math.round(this.checkoutStatus()?.belowMinimum?.percent ?? 0),
   );
 
+  // Order-level discount (promo/cart-wide markdown) on top of per-item
+  // pricing already folded into "Сума товарів" — see
+  // lib/agent/cart-state.ts's getOrderDiscount for why calculation.subDiscount
+  // itself isn't used directly. Routed through computed() rather than called
+  // straight from the template so it isn't re-derived on every CD cycle.
+  protected readonly orderDiscount = computed(() => {
+    const result = this.agent.result();
+    return result ? getOrderDiscount(result.cart) : 0;
+  });
+
   // Doesn't touch the run/result flow at all — just hands the already-built
   // cart off to whoever's paying. Native share sheet gives its own feedback
   // on success, so only the clipboard fallback (and outright failure) need a
@@ -249,6 +261,14 @@ export class AppComponent {
     if (!this.canRun()) return;
     const { address, request } = this.form.getRawValue();
     void this.agent.run(address, request);
+  }
+
+  protected onApprove(approvedItemKeys: string[]): void {
+    void this.agent.approve(approvedItemKeys);
+  }
+
+  protected onReject(): void {
+    void this.agent.reject();
   }
 
   protected toggleVoiceInput(): void {

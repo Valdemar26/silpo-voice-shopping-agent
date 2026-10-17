@@ -58,11 +58,33 @@ export default async function handler(req: Request): Promise<Response> {
       return withSessionCookie(json({ run: current.run, steps: current.steps, next: null }, 200), session);
     }
 
+    // Already paused for a human decision — nothing to execute. The journal
+    // hasn't changed since it was computed, so planNext deterministically
+    // re-derives the same 'approval' decision; this just reflects it back
+    // instead of re-running anything. POST /api/runs/[id]/approve is the
+    // only thing that moves a run out of this status.
+    if (current.run.status === 'waiting_approval') {
+      const decision = planNext(current.run, current.steps);
+      return withSessionCookie(
+        json({ run: current.run, steps: current.steps, next: decision.kind === 'approval' ? decision : null }, 200),
+        session,
+      );
+    }
+
     const decision = planNext(current.run, current.steps);
 
     if (decision.kind === 'done') {
       const updatedRun = await updateRun(runId, { status: 'succeeded', currentStep: undefined });
       return withSessionCookie(json({ run: updatedRun, steps: current.steps, next: null }, 200), session);
+    }
+
+    // An approval gate is reached — pause the run instead of executing it.
+    // executeStep must never see an 'approval' decision (see its own guard
+    // in lib/control-plane/execute.ts); POST /api/runs/[id]/approve is what
+    // appends the approval step and resumes the run.
+    if (decision.kind === 'approval') {
+      const updatedRun = await updateRun(runId, { status: 'waiting_approval', currentStep: 'approval' });
+      return withSessionCookie(json({ run: updatedRun, steps: current.steps, next: decision }, 200), session);
     }
 
     // Intermediate write for the duration of the execution below — visible
@@ -99,7 +121,10 @@ export default async function handler(req: Request): Promise<Response> {
       return withSessionCookie(json({ run: updatedRun, steps: allSteps, next: null }, 200), session);
     }
 
-    const updatedRun = await updateRun(runId, { status: 'running', currentStep: next.kind });
+    const updatedRun = await updateRun(runId, {
+      status: next.kind === 'approval' ? 'waiting_approval' : 'running',
+      currentStep: next.kind,
+    });
     return withSessionCookie(json({ run: updatedRun, steps: allSteps, next }, 200), session);
   } catch (e) {
     return withSessionCookie(errorResponse(e), session);

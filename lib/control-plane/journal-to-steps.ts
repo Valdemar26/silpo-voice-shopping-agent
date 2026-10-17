@@ -7,7 +7,14 @@
 import type { CheckoutStatus } from '../agent/cart-state';
 import type { ParsedItem, Selector } from '../agent/parse-items-core';
 import type { CartSetupTraceEntry } from '../mcp/silpo-tools';
-import type { CartWriteOutput, FinalizeOutput, NonTerminalDecision, ParseOutput, SelectProductOutput } from './plan';
+import type {
+  ApprovalOutput,
+  CartWriteOutput,
+  FinalizeOutput,
+  NonTerminalDecision,
+  ParseOutput,
+  SelectProductOutput,
+} from './plan';
 import type { Run, Step } from './types';
 
 export type StepStatus = 'running' | 'done' | 'error';
@@ -154,6 +161,19 @@ function checkoutStatusAgentStep(status: CheckoutStatus): AgentStep {
   };
 }
 
+// Always 'done' — api/runs/[id]/approve.ts only ever appends this step with
+// status: 'succeeded' (rejecting/approving is itself the outcome, not a
+// technical failure). Same id as the 'running' placeholder below so the row
+// updates in place instead of a new one appearing.
+function approvalStep(step: Step): AgentStep {
+  const output = step.output as ApprovalOutput;
+  const decision = step.input as Extract<NonTerminalDecision, { kind: 'approval' }>;
+  const label = output.approved
+    ? `Підтверджено: ${output.approvedItemKeys.length} з ${decision.items.length}`
+    : 'Скасовано користувачем';
+  return { id: 'approval', label, status: 'done' };
+}
+
 function finalizeStep(step: Step): AgentStep {
   if (step.status === 'failed') {
     return { id: 'checkout-status', label: 'Не вдалося визначити статус оформлення', status: 'error', detail: step.error };
@@ -186,6 +206,8 @@ function nextAgentStep(run: Run, next: NonTerminalDecision): AgentStep {
       };
     case 'finalize':
       return { id: 'checkout-status', label: 'Перевірка статусу оформлення', status: 'running' };
+    case 'approval':
+      return { id: 'approval', label: 'Очікує підтвердження', status: 'running' };
   }
 }
 
@@ -210,8 +232,7 @@ export function journalToAgentSteps(run: Run, steps: Step[], next: NonTerminalDe
         result.push(finalizeStep(step));
         break;
       case 'approval':
-        // Not planned/executed anywhere yet (see lib/control-plane/plan.ts) —
-        // nothing to render.
+        result.push(approvalStep(step));
         break;
     }
   }

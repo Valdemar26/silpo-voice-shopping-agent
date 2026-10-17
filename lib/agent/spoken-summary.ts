@@ -3,6 +3,7 @@
 // finalize step (lib/control-plane/execute.ts) can build the exact same
 // spoken summary server-side instead of the client re-deriving it from a
 // journal it already has.
+import type { ApprovalItem } from '../control-plane/plan';
 import type { CartState } from './cart-state';
 
 // One product actually added to the cart during a single run — used to scope
@@ -43,6 +44,15 @@ export function buildSpokenSummary(state: CartState, addedItems: AddedItem[], ha
   return `Додав ${joinWithI(names)}, разом ${grandTotal} ${pluralizeHryvnia(grandTotal)}.`;
 }
 
+// Spoken when a run pauses for approval — called client-side
+// (SilpoAgentService) straight off the 'approval' decision's own items,
+// unlike buildSpokenSummary which needs a fresh CartState only the server
+// has at that point.
+export function buildApprovalPrompt(items: ApprovalItem[]): string {
+  const total = Math.round(items.reduce((sum, i) => sum + i.price * i.quantity, 0));
+  return `Знайшов ${items.length} ${pluralizeProducts(items.length)} на ${total} ${pluralizeHryvnia(total)}. Підтвердіть, будь ласка.`;
+}
+
 function joinWithI(items: string[]): string {
   if (items.length === 1) return items[0];
   return `${items.slice(0, -1).join(', ')} і ${items[items.length - 1]}`;
@@ -56,4 +66,15 @@ function pluralizeHryvnia(amount: number): string {
   if (mod10 === 1) return 'гривня';
   if (mod10 >= 2 && mod10 <= 4) return 'гривні';
   return 'гривень';
+}
+
+// Same mod10/mod100 agreement as pluralizeHryvnia, for "товар"
+// (1 товар, 2 товари, 5 товарів, ...).
+function pluralizeProducts(count: number): string {
+  const mod100 = Math.abs(count) % 100;
+  const mod10 = mod100 % 10;
+  if (mod100 > 10 && mod100 < 20) return 'товарів';
+  if (mod10 === 1) return 'товар';
+  if (mod10 >= 2 && mod10 <= 4) return 'товари';
+  return 'товарів';
 }

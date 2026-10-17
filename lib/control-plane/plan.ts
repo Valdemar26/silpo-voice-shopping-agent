@@ -28,6 +28,23 @@ export interface SelectProductOutput {
   anomalyDetected: boolean;
 }
 
+export interface ApprovalItem {
+  itemKey: string;
+  name: string;
+  quantity: number;
+  price: number;
+  type: 'add' | 'replace';
+  // Only for type: 'replace' — the name of the cart line this item would
+  // remove, so the approval panel shows that half of the action too, not
+  // just what gets added.
+  target?: string;
+}
+
+export interface ApprovalOutput {
+  approved: boolean;
+  approvedItemKeys: string[];
+}
+
 export interface CartWriteOutput {
   shoppingCartId: string;
   productId: string;
@@ -59,6 +76,7 @@ export type PlanDecision =
   | { kind: 'setup_cart' }
   | { kind: 'parse' }
   | { kind: 'select_product'; index: number; itemKey: string; item: ParsedItem }
+  | { kind: 'approval'; items: ApprovalItem[] }
   | { kind: 'cart_write'; index: number; itemKey: string; item: ParsedItem; picked: SearchProduct }
   | { kind: 'finalize' }
   | { kind: 'done' };
@@ -90,15 +108,50 @@ export function planNext(run: Run, steps: Step[]): PlanDecision {
     }
   }
 
+  // Every item has gone through select_product by this point — collect the
+  // ones that actually found something to add/replace. An item whose pick
+  // came back null never reaches cart_write or the approval list below.
+  const pickedEntries: Array<{ index: number; itemKey: string; item: ParsedItem; picked: SearchProduct }> = [];
   for (let index = 0; index < items.length; index++) {
     const item = items[index];
     const itemKey = makeItemKey(index, item.query);
     const selectStep = findByItemKey('select_product', itemKey);
     const picked = (selectStep?.output as SelectProductOutput | undefined)?.picked ?? null;
-    if (picked === null) continue;
+    if (picked !== null) pickedEntries.push({ index, itemKey, item, picked });
+  }
 
-    if (!findByItemKey('cart_write', itemKey)) {
-      return { kind: 'cart_write', index, itemKey, item, picked };
+  if (pickedEntries.length > 0) {
+    const approvalStep = find('approval');
+
+    if (!approvalStep) {
+      return {
+        kind: 'approval',
+        items: pickedEntries.map((e) => ({
+          itemKey: e.itemKey,
+          name: e.picked.name,
+          quantity: e.item.quantity,
+          price: e.picked.price,
+          type: e.item.type,
+          target: e.item.type === 'replace' ? e.item.target : undefined,
+        })),
+      };
+    }
+
+    const approvalOutput = approvalStep.output as ApprovalOutput;
+    if (!approvalOutput.approved) {
+      // Rejected — nothing more to do. In the live system the run is
+      // already 'cancelled' and terminal by the time anyone calls
+      // planNext again (see api/runs/[id]/approve.ts), so this mostly
+      // matters for planNext's own correctness/tests.
+      return { kind: 'done' };
+    }
+
+    const approvedKeys = new Set(approvalOutput.approvedItemKeys);
+    for (const e of pickedEntries) {
+      if (!approvedKeys.has(e.itemKey)) continue;
+      if (!findByItemKey('cart_write', e.itemKey)) {
+        return { kind: 'cart_write', index: e.index, itemKey: e.itemKey, item: e.item, picked: e.picked };
+      }
     }
   }
 

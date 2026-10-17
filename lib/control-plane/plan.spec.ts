@@ -35,6 +35,16 @@ const PRODUCT: SearchProduct = {
   branchId: 'b1',
 };
 
+const BREAD: SearchProduct = {
+  id: 'p2',
+  name: 'Хліб',
+  price: 25,
+  stock: 5,
+  image: '',
+  companyId: 'c1',
+  branchId: 'b1',
+};
+
 describe('planNext', () => {
   it('starts with setup_cart on an empty journal', () => {
     expect(planNext(RUN, [])).toEqual({ kind: 'setup_cart' });
@@ -63,7 +73,7 @@ describe('planNext', () => {
     });
   });
 
-  it('skips cart_write for an item whose select_product picked null', () => {
+  it('returns an approval decision once every select_product is resolved, listing only picked items', () => {
     const steps: Step[] = [
       step({ kind: 'setup_cart', status: 'succeeded', output: { shoppingCartId: 'cart-1' } }),
       step({
@@ -91,15 +101,68 @@ describe('planNext', () => {
     ];
 
     expect(planNext(RUN, steps)).toEqual({
-      kind: 'cart_write',
-      index: 1,
-      itemKey: makeItemKey(1, 'молоко'),
-      item: { type: 'add', query: 'молоко', quantity: 1 },
-      picked: PRODUCT,
+      kind: 'approval',
+      items: [
+        { itemKey: makeItemKey(1, 'молоко'), name: 'Молоко', quantity: 1, price: 42, type: 'add', target: undefined },
+      ],
     });
   });
 
-  it('moves to finalize once every item is resolved', () => {
+  it('moves to cart_write only for approved itemKeys, then straight to finalize once no approved item remains', () => {
+    const baseSteps: Step[] = [
+      step({ kind: 'setup_cart', status: 'succeeded', output: { shoppingCartId: 'cart-1' } }),
+      step({
+        kind: 'parse',
+        status: 'succeeded',
+        output: {
+          items: [
+            { type: 'add', query: 'молоко', quantity: 1 },
+            { type: 'add', query: 'хліб', quantity: 1 },
+          ],
+        },
+      }),
+      step({
+        kind: 'select_product',
+        status: 'succeeded',
+        itemKey: makeItemKey(0, 'молоко'),
+        output: { picked: PRODUCT, reason: 'ok', detail: 'ok' },
+      }),
+      step({
+        kind: 'select_product',
+        status: 'succeeded',
+        itemKey: makeItemKey(1, 'хліб'),
+        output: { picked: BREAD, reason: 'ok', detail: 'ok' },
+      }),
+      step({
+        kind: 'approval',
+        status: 'succeeded',
+        output: { approved: true, approvedItemKeys: [makeItemKey(0, 'молоко')] },
+      }),
+    ];
+
+    expect(planNext(RUN, baseSteps)).toEqual({
+      kind: 'cart_write',
+      index: 0,
+      itemKey: makeItemKey(0, 'молоко'),
+      item: { type: 'add', query: 'молоко', quantity: 1 },
+      picked: PRODUCT,
+    });
+
+    const afterCartWrite: Step[] = [
+      ...baseSteps,
+      step({
+        kind: 'cart_write',
+        status: 'succeeded',
+        itemKey: makeItemKey(0, 'молоко'),
+        output: { shoppingCartId: 'cart-1' },
+      }),
+    ];
+
+    // хліб was never approved — skipped forever, straight to finalize.
+    expect(planNext(RUN, afterCartWrite)).toEqual({ kind: 'finalize' });
+  });
+
+  it('a rejected approval ends the run without any cart_write', () => {
     const steps: Step[] = [
       step({ kind: 'setup_cart', status: 'succeeded', output: { shoppingCartId: 'cart-1' } }),
       step({
@@ -112,6 +175,54 @@ describe('planNext', () => {
         status: 'succeeded',
         itemKey: makeItemKey(0, 'молоко'),
         output: { picked: PRODUCT, reason: 'ok', detail: 'ok' },
+      }),
+      step({
+        kind: 'approval',
+        status: 'succeeded',
+        output: { approved: false, approvedItemKeys: [] },
+      }),
+    ];
+
+    expect(planNext(RUN, steps)).toEqual({ kind: 'done' });
+  });
+
+  it('skips approval entirely and goes straight to finalize when nothing was found', () => {
+    const steps: Step[] = [
+      step({ kind: 'setup_cart', status: 'succeeded', output: { shoppingCartId: 'cart-1' } }),
+      step({
+        kind: 'parse',
+        status: 'succeeded',
+        output: { items: [{ type: 'add', query: 'нічогонема', quantity: 1 }] },
+      }),
+      step({
+        kind: 'select_product',
+        status: 'succeeded',
+        itemKey: makeItemKey(0, 'нічогонема'),
+        output: { picked: null, reason: 'no_candidates', detail: 'Нічого не знайдено' },
+      }),
+    ];
+
+    expect(planNext(RUN, steps)).toEqual({ kind: 'finalize' });
+  });
+
+  it('moves to finalize once every approved item is resolved', () => {
+    const steps: Step[] = [
+      step({ kind: 'setup_cart', status: 'succeeded', output: { shoppingCartId: 'cart-1' } }),
+      step({
+        kind: 'parse',
+        status: 'succeeded',
+        output: { items: [{ type: 'add', query: 'молоко', quantity: 1 }] },
+      }),
+      step({
+        kind: 'select_product',
+        status: 'succeeded',
+        itemKey: makeItemKey(0, 'молоко'),
+        output: { picked: PRODUCT, reason: 'ok', detail: 'ok' },
+      }),
+      step({
+        kind: 'approval',
+        status: 'succeeded',
+        output: { approved: true, approvedItemKeys: [makeItemKey(0, 'молоко')] },
       }),
       step({
         kind: 'cart_write',
@@ -137,6 +248,11 @@ describe('planNext', () => {
         status: 'succeeded',
         itemKey: makeItemKey(0, 'молоко'),
         output: { picked: PRODUCT, reason: 'ok', detail: 'ok' },
+      }),
+      step({
+        kind: 'approval',
+        status: 'succeeded',
+        output: { approved: true, approvedItemKeys: [makeItemKey(0, 'молоко')] },
       }),
       step({
         kind: 'cart_write',

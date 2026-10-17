@@ -146,4 +146,48 @@ describe('journalToAgentSteps', () => {
       { id: 'setup-cart', label: 'Налаштування кошика для адреси «вул. Хрещатик 1»', status: 'running' },
     ]);
   });
+
+  it('shows a running placeholder while waiting for approval', () => {
+    const next = {
+      kind: 'approval' as const,
+      items: [{ itemKey: makeItemKey(0, 'молоко'), name: 'Молоко', quantity: 1, price: 42, type: 'add' as const }],
+    };
+
+    expect(journalToAgentSteps(RUN, [], next)).toEqual([{ id: 'approval', label: 'Очікує підтвердження', status: 'running' }]);
+  });
+
+  it('labels a partially approved approval step as "Підтверджено: N з M"', () => {
+    const steps: Step[] = [
+      step({
+        kind: 'approval',
+        status: 'succeeded',
+        input: {
+          kind: 'approval',
+          items: [
+            { itemKey: makeItemKey(0, 'молоко'), name: 'Молоко', quantity: 1, price: 42, type: 'add' },
+            { itemKey: makeItemKey(1, 'хліб'), name: 'Хліб', quantity: 2, price: 25, type: 'add' },
+          ],
+        },
+        output: { approved: true, approvedItemKeys: [makeItemKey(0, 'молоко')] },
+      }),
+    ];
+
+    expect(journalToAgentSteps(RUN, steps, null)).toEqual([{ id: 'approval', label: 'Підтверджено: 1 з 2', status: 'done' }]);
+  });
+
+  it('labels a rejected approval step as "Скасовано користувачем"', () => {
+    const steps: Step[] = [
+      step({
+        kind: 'approval',
+        status: 'succeeded',
+        input: {
+          kind: 'approval',
+          items: [{ itemKey: makeItemKey(0, 'молоко'), name: 'Молоко', quantity: 1, price: 42, type: 'add' }],
+        },
+        output: { approved: false, approvedItemKeys: [] },
+      }),
+    ];
+
+    expect(journalToAgentSteps(RUN, steps, null)).toEqual([{ id: 'approval', label: 'Скасовано користувачем', status: 'done' }]);
+  });
 });

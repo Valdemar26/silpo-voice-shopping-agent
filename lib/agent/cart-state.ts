@@ -36,6 +36,10 @@ export interface SilpoCart {
     totalAfterDiscounts: number;
     productsTotal: number;
     validations: CartValidation[];
+    // Confirmed against a live getShoppingCartById response — nested under
+    // its own object, not a bare number alongside the rest. Absent rather
+    // than { total: 0 } on a self-pickup cart with no delivery leg.
+    delivery?: { total: number };
   };
 }
 
@@ -46,6 +50,20 @@ export interface CartState {
   // confirmed against a live call. Present only once the cart clears
   // order.cost.min (and any other blocking validation).
   checkoutWebLink?: string;
+}
+
+// Order-level discount (promo code, cart-wide markdown, etc.) — deliberately
+// NOT Silpo's own calculation.subDiscount field. Confirmed live: subDiscount
+// already includes per-item markdowns that are also baked into
+// productsTotal (e.g. a beer line with its own oldPrice discount plus a
+// separate "buy more, save more" promo totalled subDiscount: 350 for 50+300
+// ₴ of combined savings) — showing it as-is alongside "Сума товарів" would
+// double-count those per-item markdowns. This instead derives the
+// order-level discount from the actual arithmetic: whatever's left over once
+// products + delivery don't add up to the final total.
+export function getOrderDiscount(cart: SilpoCart): number {
+  const deliveryTotal = cart.calculation.delivery?.total ?? 0;
+  return Math.round(cart.calculation.productsTotal + deliveryTotal - cart.calculation.totalAfterDiscounts);
 }
 
 // Reads the minimum order cost straight from validations[] — not a

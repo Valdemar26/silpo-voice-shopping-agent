@@ -86,6 +86,12 @@ async function runDecision(
   llm: LlmUsage[],
 ): Promise<unknown> {
   switch (decision.kind) {
+    case 'approval':
+      // api/runs/[id]/advance.ts intercepts an 'approval' decision before it
+      // ever reaches executeStep (it pauses the run instead) — reaching here
+      // would mean that guard was bypassed.
+      throw new Error('approval decisions must not be executed — handled directly in the advance route');
+
     case 'setup_cart':
       return timed(toolCalls, 'setupCartForAddress', () => setupCartForAddress(ctx.sessionId, run.input.address));
 

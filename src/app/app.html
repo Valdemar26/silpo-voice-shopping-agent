@@ -181,6 +181,15 @@
       </section>
     }
 
+    @if (agent.pendingApproval(); as items) {
+      <app-approval-panel
+        [items]="items"
+        [busy]="agent.approving()"
+        (confirm)="onApprove($event)"
+        (cancel)="onReject()"
+      />
+    }
+
     @if (agent.result(); as result) {
       <section class="result-panel" data-cy="result-panel">
         <div class="result-header">
@@ -290,6 +299,14 @@
 
         <div class="totals" data-cy="cart-totals">
           <span>Сума товарів: {{ result.cart.calculation.productsTotal }} ₴</span>
+          @if (result.cart.calculation.delivery; as delivery) {
+            <span>Доставка: {{ delivery.total > 0 ? delivery.total + ' ₴' : 'безкоштовно' }}</span>
+          } @else {
+            <span>Доставка: безкоштовно</span>
+          }
+          @if (orderDiscount() > 0) {
+            <span>Знижка: −{{ orderDiscount() }} ₴</span>
+          }
           <span>До сплати: {{ result.cart.calculation.totalAfterDiscounts }} ₴</span>
         </div>
 
