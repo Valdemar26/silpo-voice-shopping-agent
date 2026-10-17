@@ -4,6 +4,7 @@ import { errorResponse, json } from '../lib/mcp/http';
 import { planNext } from '../lib/control-plane/plan';
 import { createRun, findResumableRun } from '../lib/control-plane/store';
 import { readOrCreateSessionId, withSessionCookie } from '../lib/mcp/session';
+import { checkRateLimit } from '../lib/rate-limit';
 
 interface CreateRunBody {
   address?: unknown;
@@ -37,6 +38,14 @@ export default async function handler(req: Request): Promise<Response> {
 
   if (req.method !== 'POST') {
     return withSessionCookie(json({ error: 'Method not allowed' }, 405), session);
+  }
+
+  // Each run eventually drives several paid Anthropic calls (parse,
+  // select_product per item) — cap how many a single IP can even start per
+  // minute, separately from the per-advance limit below.
+  const rateLimit = await checkRateLimit(req, 'runs-create', 10);
+  if (!rateLimit.allowed) {
+    return withSessionCookie(json({ error: 'Забагато запитів — спробуйте за хвилину', code: 'rate_limited' }, 429), session);
   }
 
   let body: CreateRunBody;

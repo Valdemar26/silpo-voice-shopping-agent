@@ -255,6 +255,15 @@ export class SilpoAgentService {
         continue;
       }
       lockWaitStartedAt = null;
+
+      // Per-IP rate limit on this endpoint (lib/rate-limit.ts, bucket
+      // 'runs-advance') — not a transient 502/503/504, so postWithRetry
+      // already returned it as-is rather than retrying.
+      if (response.status === 429) {
+        this.addAdvanceErrorStep('Забагато запитів, спробуйте за хвилину');
+        this.running.set(false);
+        return;
+      }
       stepAttempts++;
 
       let data: unknown;

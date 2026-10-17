@@ -4,6 +4,7 @@ Dated entries, newest first. Dates are from `git log`. This project replaced an 
 
 ## 2026-10-17
 
+- Added per-IP rate limiting on `POST /api/runs` (10/min) and `POST /api/runs/[id]/advance` (120/min) — the new control-plane path calls Anthropic same as the old `api/agent/*` endpoints did, but had no limit of its own.
 - Added resume-after-reload (`GET /api/runs`), retry-with-backoff for transient `advance()` failures, a "Retry" button capped at 3 attempts per step, and an idempotent `cart_write` (checks the live cart before writing, so a retried step can't double-add or fail on an already-removed replace target).
 - Added an approval gate: once every item has been searched, the run pauses in `waiting_approval` until the person confirms or drops individual finds, before anything is written to the cart.
 - Moved `SilpoAgentService.run()` off direct browser calls to Silpo onto the server-side control plane: the UI now creates a run and calls `advance()` step by step itself, rendering the journal each call returns, instead of talking to Silpo directly.

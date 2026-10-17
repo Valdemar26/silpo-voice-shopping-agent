@@ -6,6 +6,7 @@ import { executeStep, type ExecuteContext } from '../../../lib/control-plane/exe
 import { planNext } from '../../../lib/control-plane/plan';
 import { acquireRunLock, appendStep, getRunWithSteps, releaseRunLock, updateRun } from '../../../lib/control-plane/store';
 import { readOrCreateSessionId, withSessionCookie } from '../../../lib/mcp/session';
+import { checkRateLimit } from '../../../lib/rate-limit';
 
 const TERMINAL_STATUSES = new Set(['succeeded', 'failed', 'cancelled']);
 
@@ -25,6 +26,13 @@ export default async function handler(req: Request): Promise<Response> {
 
   if (req.method !== 'POST') {
     return withSessionCookie(json({ error: 'Method not allowed' }, 405), session);
+  }
+
+  // One run is ~10 advance() calls end to end — a higher bucket than
+  // 'runs-create' for the same reason, scaled to that.
+  const rateLimit = await checkRateLimit(req, 'runs-advance', 120);
+  if (!rateLimit.allowed) {
+    return withSessionCookie(json({ error: 'Забагато запитів — спробуйте за хвилину', code: 'rate_limited' }, 429), session);
   }
 
   const runId = runIdFromPath(req);

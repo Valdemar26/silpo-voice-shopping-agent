@@ -32,7 +32,9 @@ Angular UI (src/app) ──fetch──> api/runs.ts, api/runs/[id]/{advance,appr
 Upstash Redis:
   cp:run:*, cp:session:*:runs      — run journal (lib/control-plane/store.ts)
   mcp:client, mcp:tokens:*, mcp:session_id:*  — OAuth client + per-session tokens/MCP session
-  ratelimit:*                      — per-IP rate limiting on LLM/TTS endpoints
+  ratelimit:*                      — per-IP limits on POST /api/runs (10/min) and
+                                      POST /api/runs/[id]/advance (120/min), plus
+                                      the older api/agent/* and api/tts/speak.ts
 ```
 
 `POST /api/mcp/cart/items` and `POST /api/mcp/cart/clear` are also called directly by the client, outside the control plane, for actions that don't need a multi-step run: removing a single item, swapping in a discount alternative, and clearing the cart (`SilpoAgentService.removeProduct` / `switchToAlternative` / `clearCart`).
