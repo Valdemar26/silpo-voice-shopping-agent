@@ -1,8 +1,7 @@
 import { Injectable, inject, signal } from '@angular/core';
 import { TtsService } from './tts';
-import { selectProduct, type SearchProduct, type Selector } from '../../../lib/agent/pick-product';
+import { type SearchProduct } from '../../../lib/agent/pick-product';
 import {
-  findCartProductByTarget,
   getCheckoutStatus,
   type CartProduct,
   type CartState,
@@ -10,31 +9,26 @@ import {
   type SilpoCart,
   type StockExceededItem,
 } from '../../../lib/agent/cart-state';
+import { journalToAgentSteps, type AgentStep, type StepStatus } from '../../../lib/control-plane/journal-to-steps';
+import type { FinalizeOutput, NonTerminalDecision, SelectProductOutput } from '../../../lib/control-plane/plan';
+import type { Run, Step } from '../../../lib/control-plane/types';
 
-export type StepStatus = 'running' | 'done' | 'error';
-
-export interface AgentStep {
-  id: string;
-  label: string;
-  status: StepStatus;
-  detail?: string;
-}
-
+export type { StepStatus, AgentStep };
 export type { SearchProduct, CartProduct, CartState, CheckoutStatus, SilpoCart, StockExceededItem };
 export { getCheckoutStatus };
 
-type ParsedItem =
-  | { type: 'add'; query: string; quantity: number; selector?: Selector }
-  | { type: 'replace'; target: string; query: string; quantity: number; selector?: Selector };
+interface AdvanceResponse {
+  run: Run;
+  steps: Step[];
+  next: NonTerminalDecision | null;
+}
 
-// One product actually added to the cart during a single run() call — used to
-// scope the spoken summary to just this run instead of the cart's whole
-// (possibly older) contents. price is the unit price as returned by search,
-// same semantics as CartProduct.price.
-interface AddedItem {
-  name: string;
-  quantity: number;
-  price: number;
+const MAX_ADVANCE_ATTEMPTS = 50;
+const LOCK_RETRY_DELAY_MS = 500;
+const TERMINAL_RUN_STATUSES = new Set<Run['status']>(['succeeded', 'failed', 'cancelled']);
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 @Injectable({ providedIn: 'root' })
@@ -68,6 +62,12 @@ export class SilpoAgentService {
   readonly clearingCart = signal(false);
   readonly clearCartError = signal<string | null>(null);
 
+  // Drives the run entirely through the server control-plane
+  // (lib/control-plane/{plan,execute,store}.ts via /api/runs +
+  // /api/runs/[id]/advance) instead of calling /api/mcp/*/api/agent/*
+  // directly — this method just creates the run, polls it to completion, and
+  // projects each response onto steps()/result()/discountAlternatives() via
+  // the pure journalToAgentSteps (lib/control-plane/journal-to-steps.ts).
   async run(address: string, request: string): Promise<void> {
     if (this.running()) return;
 
@@ -76,101 +76,124 @@ export class SilpoAgentService {
     this.result.set(null);
 
     try {
-      const cartState = await this.setupCart(address);
-      if (!cartState) return;
+      const run = await this.createRun(address, request);
+      if (!run) return;
 
-      // Captured before this run adds anything — totalAfterDiscounts always
-      // carries a delivery fee on top of the products themselves (99 ₴ even
-      // on a fully empty cart), so newItemsTotal vs grandTotal would almost
-      // never come out equal even on a genuinely first run; whether the cart
-      // had anything in it needs its own direct check instead.
-      const hadItemsBefore = cartState.cart.shipments.some((s) => s.products.length > 0);
+      // Running placeholder for setup_cart before the first advance() call
+      // even goes out — same spirit as the old addStep(...status:'running')
+      // call that used to precede each network request.
+      this.steps.set(journalToAgentSteps(run, [], { kind: 'setup_cart' }));
 
-      const queries = await this.parseSearchQueries(request);
-      if (queries === null) return;
-      if (queries.length === 0) {
-        this.addStep({
-          id: 'no-items',
-          label: 'Немає товарів для пошуку',
-          status: 'error',
-          detail: 'Не вдалося розпізнати жодного товару у фразі — спробуй сформулювати інакше',
-        });
-        return;
-      }
+      let current: AdvanceResponse | null = null;
 
-      let latest = cartState;
-      const addedItems: AddedItem[] = [];
-      for (const item of queries) {
-        if (item.type === 'replace') {
-          const { state, added } = await this.replaceProductInCart(
-            latest,
-            item.target,
-            item.query,
-            item.quantity,
-            item.selector,
-          );
-          if (state) latest = state;
-          if (added) addedItems.push(added);
+      for (let attempt = 0; attempt < MAX_ADVANCE_ATTEMPTS; attempt++) {
+        let response: Response;
+        try {
+          response = await fetch(`/api/runs/${run.id}/advance`, { method: 'POST' });
+        } catch (e) {
+          this.addAdvanceErrorStep('Мережева помилка під час виконання запуску', e);
+          return;
+        }
+
+        // Another advance() for this run is already in flight (e.g. a stray
+        // retry) — the lock is short-lived, so just wait it out instead of
+        // treating it as a real failure.
+        if (response.status === 409) {
+          await sleep(LOCK_RETRY_DELAY_MS);
           continue;
         }
 
-        const product = await this.searchAndPickProduct(latest, item.query, item.quantity, item.selector);
-        if (!product) continue;
-
-        const updated = await this.addProductToCart(latest.shoppingCartId, product);
-        if (updated) {
-          latest = updated;
-          addedItems.push({ name: product.name ?? item.query, quantity: product.quantity, price: product.price ?? 0 });
+        let data: unknown;
+        try {
+          data = await response.json();
+        } catch (e) {
+          this.addAdvanceErrorStep('Невалідна відповідь сервера під час виконання запуску', e);
+          return;
         }
+
+        if (!response.ok) {
+          this.flagReauthIfNeeded(data);
+          this.addAdvanceErrorStep(
+            'Не вдалося продовжити виконання запуску',
+            (data as { error?: string } | null)?.error ?? `HTTP ${response.status}`,
+          );
+          return;
+        }
+
+        current = data as AdvanceResponse;
+        this.steps.set(journalToAgentSteps(current.run, current.steps, current.next));
+
+        if (current.steps.some((s) => s.errorCode === 'reauth_required')) {
+          this.reauthRequired.set(true);
+        }
+
+        if (TERMINAL_RUN_STATUSES.has(current.run.status)) break;
       }
 
-      this.result.set(latest);
-      this.addCheckoutStatusStep(latest);
-      void this.tts.speak(this.buildSpokenSummary(latest, addedItems, hadItemsBefore));
+      if (!current || !TERMINAL_RUN_STATUSES.has(current.run.status)) {
+        this.addAdvanceErrorStep('Перевищено ліміт спроб виконання запуску');
+        return;
+      }
+
+      // 'failed'/'cancelled' — the failing step's own error is already
+      // visible via steps(); nothing else to surface here.
+      if (current.run.status !== 'succeeded') return;
+
+      const finalizeStep = current.steps.find((s) => s.kind === 'finalize' && s.status === 'succeeded');
+      if (!finalizeStep) return;
+
+      const output = finalizeStep.output as FinalizeOutput;
+      this.result.set(output.cartState);
+      void this.tts.speak(output.spokenSummary);
+
+      for (const step of current.steps) {
+        if (step.kind !== 'select_product' || step.status !== 'succeeded') continue;
+        const selectOutput = step.output as SelectProductOutput;
+        const decision = step.input as Extract<NonTerminalDecision, { kind: 'select_product' }>;
+        // Registered regardless of the final reason — a price-anomaly pick
+        // that later fails the relevance check should still expose its
+        // alternatives, same behavior as before this moved server-side.
+        if (selectOutput.anomalyDetected || decision.item.selector === 'discount') {
+          this.registerDiscountAlternatives(selectOutput.candidates);
+        }
+      }
     } finally {
       this.running.set(false);
     }
   }
 
-  // Final, explicit outcome of the run — mirrors whatever the "Результат"
-  // panel itself will show for the same cart state, computed once via
-  // getCheckoutStatus() so the two can't drift apart again. Every applicable
-  // blocking reason is listed together (same principle as the panel), not
-  // just the first one found — order.cost.min and, say, an unresolved stock
-  // shortfall can both be true on the same cart at once.
-  private addCheckoutStatusStep(state: CartState): void {
-    const id = 'checkout-status';
-    const status = getCheckoutStatus(state);
+  private async createRun(address: string, request: string): Promise<Run | null> {
+    try {
+      const response = await fetch('/api/runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address, request }),
+      });
+      const data = await response.json();
 
-    if (status.canCheckout) {
-      const label = status.adultConfirmationRequired
-        ? 'Кошик готовий до оформлення — знадобиться підтвердження повноліття на сторінці оформлення'
-        : 'Кошик готовий до оформлення';
-      this.addStep({ id, label, status: 'done' });
-      return;
+      if (!response.ok) {
+        this.flagReauthIfNeeded(data);
+        this.addAdvanceErrorStep('Не вдалося розпочати виконання запуску', data?.error ?? `HTTP ${response.status}`);
+        return null;
+      }
+
+      return data.run as Run;
+    } catch (e) {
+      this.addAdvanceErrorStep('Мережева помилка при створенні запуску', e);
+      return null;
     }
+  }
 
-    const reasons: string[] = [];
-    if (status.belowMinimum) reasons.push(`потрібно ще ${status.belowMinimum.remaining} ₴ до мінімальної суми`);
-    if (status.stockExceeded.length > 0) {
-      reasons.push(
-        `недостатньо товару на складі: ${status.stockExceeded
-          .map((i) => `«${i.name}» (у кошику ${i.quantity}, у наявності лише ${i.stock})`)
-          .join('; ')}`,
-      );
-    }
-    if (status.otherBlocked) reasons.push('є інша перешкода до оформлення');
-    if (status.adultConfirmationRequired) reasons.push('знадобиться підтвердження повноліття на сторінці оформлення');
-
-    if (reasons.length === 0) {
-      this.addStep({ id, label: 'Кошик поки недоступний до оформлення', status: 'done' });
-      return;
-    }
-
+  // One-off synthetic step for failures that happen outside the journal
+  // itself (network errors, lock-retry exhaustion, a non-OK HTTP response) —
+  // the journal-derived rows from journalToAgentSteps already cover every
+  // in-journal failure.
+  private addAdvanceErrorStep(label: string, detail?: unknown): void {
     this.addStep({
-      id,
-      label: `Кошик поки недоступний до оформлення — ${reasons.join('; ')}`,
-      status: status.stockExceeded.length > 0 ? 'error' : 'done',
+      id: 'advance-error',
+      label,
+      status: 'error',
+      detail: typeof detail === 'string' ? detail : detail instanceof Error ? detail.message : undefined,
     });
   }
 
@@ -269,8 +292,8 @@ export class SilpoAgentService {
   }
 
   // Shared by removeProduct() (standalone ✕ button, reports via
-  // removeError/result signals) and replaceProductInCart() below (mid-run,
-  // reports via its own trace step) — same DELETE call either way.
+  // removeError/result signals) and switchToAlternative() above — same
+  // DELETE call either way.
   private async deleteCartItemsRequest(
     productIds: string[],
   ): Promise<CartState | { error: string }> {
@@ -293,9 +316,7 @@ export class SilpoAgentService {
     }
   }
 
-  // Quiet counterpart to deleteCartItemsRequest, used by switchToAlternative
-  // — addProductToCart below does the same POST but also manages its own
-  // trace step, which a post-run interaction like this shouldn't add.
+  // Quiet counterpart to deleteCartItemsRequest, used by switchToAlternative.
   private async addCartItemsRequest(
     shoppingCartId: string,
     products: Array<{ productId: string; companyId: string; branchId: string; quantity: number; addQuantity?: boolean }>,
@@ -319,154 +340,8 @@ export class SilpoAgentService {
     }
   }
 
-  // Voice "replace" flow: find the existing product matching `target` in the
-  // cart, remove it, then search+add `query` in its place. Every outcome
-  // (target not found, delete failed, new product not found, add failed) gets
-  // its own explicit trace detail instead of silently skipping the item —
-  // same transparency principle as the rest of the pipeline.
-  private async replaceProductInCart(
-    cartState: CartState,
-    target: string,
-    query: string,
-    quantity: number,
-    selector?: Selector,
-  ): Promise<{ state: CartState | null; added: AddedItem | null }> {
-    const id = `replace-${target}-${query}`;
-    this.addStep({ id, label: `Заміна: «${target}» → пошук «${query}»`, status: 'running' });
-
-    const existing = findCartProductByTarget(cartState, target);
-    if (!existing) {
-      this.updateStep(id, { status: 'error', detail: `Не знайшов «${target}» у вашому кошику для заміни` });
-      return { state: null, added: null };
-    }
-    const existingLabel = existing.name ?? target;
-
-    const removed = await this.deleteCartItemsRequest([existing.productId]);
-    if ('error' in removed) {
-      this.updateStep(id, { status: 'error', detail: `Не вдалося видалити «${existingLabel}»: ${removed.error}` });
-      return { state: null, added: null };
-    }
-
-    const product = await this.searchAndPickProduct(removed, query, quantity, selector);
-    if (!product) {
-      this.updateStep(id, {
-        status: 'error',
-        detail: `Видалив «${existingLabel}», але нічого не знайшов за запитом «${query}»`,
-      });
-      return { state: removed, added: null };
-    }
-
-    const updated = await this.addProductToCart(removed.shoppingCartId, product);
-    if (!updated) {
-      this.updateStep(id, {
-        status: 'error',
-        detail: `Видалив «${existingLabel}», знайшов «${product.name}», але не вдалося додати в кошик`,
-      });
-      return { state: removed, added: null };
-    }
-
-    this.updateStep(id, {
-      status: 'done',
-      detail: `«${existingLabel}» → «${formatQuantityLabel(product.name ?? query, product.quantity)}»`,
-    });
-    return {
-      state: updated,
-      added: { name: product.name ?? query, quantity: product.quantity, price: product.price ?? 0 },
-    };
-  }
-
-  // Short spoken recap read out over TTS once the run finishes — scoped to
-  // just what THIS run() added, not the cart's whole (possibly older)
-  // contents, so a second run doesn't re-announce items added in a previous
-  // one. Kept separate from the visible result panel, which always shows the
-  // full current cart regardless of what this run touched.
-  private buildSpokenSummary(state: CartState, addedItems: AddedItem[], hadItemsBefore: boolean): string {
-    if (addedItems.length === 0) {
-      const cartHasItems = state.cart.shipments.some((s) => s.products.length > 0);
-      return cartHasItems ? 'Нічого нового не додав.' : 'Нічого не знайшов. Кошик лишився порожнім.';
-    }
-
-    const names = addedItems.map((i) => i.name);
-    const grandTotal = Math.round(state.cart.calculation.totalAfterDiscounts);
-
-    // Only worth splitting into "new items / grand total" when the cart
-    // wasn't empty going into this run — otherwise the two numbers are the
-    // same order (the whole cart IS what was just added, delivery fee aside)
-    // and a second sentence just repeats itself.
-    if (hadItemsBefore) {
-      const newItemsTotal = Math.round(addedItems.reduce((sum, i) => sum + i.price * i.quantity, 0));
-      return (
-        `Додав ${joinWithI(names)}, разом ${newItemsTotal} ${pluralizeHryvnia(newItemsTotal)} за нові позиції. ` +
-        `Загальна сума кошика — ${grandTotal} ${pluralizeHryvnia(grandTotal)}.`
-      );
-    }
-    return `Додав ${joinWithI(names)}, разом ${grandTotal} ${pluralizeHryvnia(grandTotal)}.`;
-  }
-
   private addStep(step: AgentStep): void {
     this.steps.update((steps) => [...steps, step]);
-  }
-
-  private updateStep(id: string, patch: Partial<AgentStep>): void {
-    this.steps.update((steps) => steps.map((s) => (s.id === id ? { ...s, ...patch } : s)));
-  }
-
-  // LLM step between free text and find_products_batch: a naive split on
-  // separator words breaks on multi-word phrases (find_products_batch gets
-  // one long sentence as a single query and returns 0 results), so this
-  // hands the whole phrase to an LLM that returns concrete 1-2 word search
-  // queries instead — resolving vague categories ("смаколики" -> "цукерки")
-  // and dropping selection criteria ("по акції") rather than asking for
-  // clarification. Visible as its own trace step for the same transparency
-  // reason as every other step here.
-  private async parseSearchQueries(request: string): Promise<ParsedItem[] | null> {
-    const id = 'parse-query';
-    this.addStep({ id, label: 'Розбір запиту', status: 'running' });
-
-    const body = await this.postJson<{ items: ParsedItem[] }>('/api/agent/parse-items', { text: request }, id);
-    if (!body) return null;
-
-    // Server already trims/validates; just drop anything with an empty query
-    // as a defensive floor against a malformed response slipping through.
-    const items = body.items.filter((i) => i.query.trim().length > 0);
-
-    this.updateStep(id, {
-      status: 'done',
-      detail:
-        items.length > 0
-          ? items
-              .map((i) =>
-                i.type === 'replace'
-                  ? `${i.target} → ${formatItemLabel(i.query, i.quantity, i.selector)}`
-                  : formatItemLabel(i.query, i.quantity, i.selector),
-              )
-              .join(', ')
-          : 'Товарів не розпізнано',
-    });
-
-    return items;
-  }
-
-  private async postJson<T>(url: string, body: unknown, stepId: string): Promise<T | null> {
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      const data = await response.json();
-
-      if (!response.ok) {
-        this.flagReauthIfNeeded(data);
-        this.updateStep(stepId, { status: 'error', detail: data?.error ?? `HTTP ${response.status}` });
-        return null;
-      }
-
-      return data as T;
-    } catch (e) {
-      this.updateStep(stepId, { status: 'error', detail: e instanceof Error ? e.message : 'Мережева помилка' });
-      return null;
-    }
   }
 
   // Marks the stored Silpo session as unrecoverably dead so the template can
@@ -476,102 +351,6 @@ export class SilpoAgentService {
     if (typeof data === 'object' && data !== null && (data as { code?: unknown }).code === 'reauth_required') {
       this.reauthRequired.set(true);
     }
-  }
-
-  // Cheap LLM sanity check (api/agent/check-relevance.ts) that a picked
-  // candidate is actually the type of product asked for. Deliberately fails
-  // open (returns true) on any network/server error — this is a safety net
-  // layered on top of the real search, not a hard gate, so a flaky call here
-  // must never be the reason nothing ever gets added.
-  private async checkRelevance(query: string, candidateName: string): Promise<boolean> {
-    try {
-      const response = await fetch('/api/agent/check-relevance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, candidateName }),
-      });
-      if (!response.ok) return true;
-      const data = await response.json();
-      return typeof data.relevant === 'boolean' ? data.relevant : true;
-    } catch {
-      return true;
-    }
-  }
-
-  private async setupCart(address: string): Promise<CartState | null> {
-    const id = 'setup-cart';
-    this.addStep({ id, label: `Налаштування кошика для адреси «${address}»`, status: 'running' });
-
-    const body = await this.postJson<{
-      shoppingCartId: string;
-      cart: SilpoCart;
-      checkoutWebLink?: string;
-      trace: Array<{ step: string; detail: string }>;
-    }>('/api/mcp/cart/create', { address }, id);
-    if (!body) return null;
-
-    this.updateStep(id, { status: 'done', detail: `Кошик ${body.shoppingCartId}` });
-
-    // Surface the server's own find_address -> ... -> create_shopping_cart
-    // trace as its own sub-steps instead of hiding it behind one summary line.
-    body.trace.forEach((entry, i) => {
-      this.addStep({ id: `trace-${i}-${entry.step}`, label: entry.step, status: 'done', detail: entry.detail });
-    });
-
-    return { shoppingCartId: body.shoppingCartId, cart: body.cart, checkoutWebLink: body.checkoutWebLink };
-  }
-
-  private async searchAndPickProduct(
-    cartState: CartState,
-    query: string,
-    quantity: number,
-    selector?: Selector,
-  ): Promise<CartProduct | null> {
-    const id = `search-${query}`;
-    const criterionSuffix = selector === 'discount' ? ' (критерій: акція)' : '';
-    this.addStep({ id, label: `Пошук: «${query}»${criterionSuffix}`, status: 'running' });
-
-    const body = await this.postJson<{ queries: Array<{ products: SearchProduct[] }> }>(
-      '/api/mcp/products/search',
-      { products: [query], limit: 5 },
-      id,
-    );
-    if (!body) return null;
-
-    const candidates = body.queries[0]?.products ?? [];
-
-    // Decision logic (pick among candidates, price-anomaly fallback,
-    // relevance safety net below) lives in lib/agent/pick-product.ts so it's
-    // importable from evals/runner.ts without an Angular/DOM context — this
-    // method just supplies the network calls and translates the outcome into
-    // trace steps / a CartProduct.
-    const result = await selectProduct(candidates, selector, query, (q, name) => this.checkRelevance(q, name));
-
-    // Registered regardless of the final reason — a price-anomaly pick that
-    // later fails the relevance check should still expose its alternatives,
-    // same behavior as before this was extracted.
-    if (result.anomalyDetected || selector === 'discount') {
-      this.registerDiscountAlternatives(candidates);
-    }
-
-    if (!result.picked) {
-      this.updateStep(id, { status: 'error', detail: result.detail });
-      return null;
-    }
-
-    this.updateStep(id, { status: 'done', detail: result.detail });
-
-    const found = result.picked;
-    return {
-      productId: found.id,
-      companyId: found.companyId,
-      branchId: found.branchId,
-      name: found.name,
-      image: found.image,
-      quantity,
-      price: found.price,
-      stock: found.stock,
-    };
   }
 
   // Every candidate is registered — including the one that was actually
@@ -585,37 +364,6 @@ export class SilpoAgentService {
       for (const c of candidates) next.set(c.id, candidates);
       return next;
     });
-  }
-
-  private async addProductToCart(shoppingCartId: string, product: CartProduct): Promise<CartState | null> {
-    const id = `add-${product.productId}`;
-    const label = formatQuantityLabel(product.name ?? 'товар', product.quantity);
-    this.addStep({ id, label: `Додавання в кошик: «${label}»`, status: 'running' });
-
-    const body = await this.postJson<{ shoppingCartId: string; cart: SilpoCart; checkoutWebLink?: string }>(
-      '/api/mcp/cart/items',
-      {
-        products: [
-          {
-            productId: product.productId,
-            companyId: product.companyId,
-            branchId: product.branchId,
-            quantity: product.quantity,
-            // silpo_add_or_update_cart_products defaults addQuantity to true
-            // server-side (undocumented, confirmed via Silpo's Discord) — a
-            // repeat add for a product already in the cart would silently sum
-            // onto its existing quantity instead of setting the amount the
-            // user actually asked for in this utterance.
-            addQuantity: false,
-          },
-        ],
-      },
-      id,
-    );
-    if (!body) return null;
-
-    this.updateStep(id, { status: 'done' });
-    return { shoppingCartId: body.shoppingCartId, cart: body.cart, checkoutWebLink: body.checkoutWebLink };
   }
 }
 
@@ -633,32 +381,4 @@ export function buildShareText(state: CartState): string {
   const link = state.checkoutWebLink ? ` Оформити: ${state.checkoutWebLink}` : '';
 
   return `Зібрав кошик у Сільпо: ${itemsList}, разом ${total}₴.${link}`;
-}
-
-// "молоко × 2" when the quantity is worth calling out, plain "хліб" for the
-// common single-item case — avoids "× 1" noise on every trace line.
-function formatQuantityLabel(name: string, quantity: number): string {
-  return quantity !== 1 ? `${name} × ${quantity}` : name;
-}
-
-// Same as formatQuantityLabel, plus a "(по акції)" tag when a selector was
-// captured — used in the parse-step trace summary.
-function formatItemLabel(query: string, quantity: number, selector?: Selector): string {
-  const base = formatQuantityLabel(query, quantity);
-  return selector === 'discount' ? `${base} (по акції)` : base;
-}
-
-function joinWithI(items: string[]): string {
-  if (items.length === 1) return items[0];
-  return `${items.slice(0, -1).join(', ')} і ${items[items.length - 1]}`;
-}
-
-// Ukrainian grammatical number agreement for "гривня" (1 гривня, 2 гривні, 5 гривень, ...).
-function pluralizeHryvnia(amount: number): string {
-  const mod100 = Math.abs(amount) % 100;
-  const mod10 = mod100 % 10;
-  if (mod100 > 10 && mod100 < 20) return 'гривень';
-  if (mod10 === 1) return 'гривня';
-  if (mod10 >= 2 && mod10 <= 4) return 'гривні';
-  return 'гривень';
 }

@@ -11,6 +11,8 @@ import { checkRelevanceWithClient } from '../agent/check-relevance-core';
 import { findCartProductByTarget, getCheckoutStatus, type CartState } from '../agent/cart-state';
 import { parseItemsWithClient } from '../agent/parse-items-core';
 import { selectProduct, type SearchProduct } from '../agent/pick-product';
+import { buildSpokenSummary, type AddedItem } from '../agent/spoken-summary';
+import { ReauthRequiredError } from '../mcp/oauth';
 import {
   addOrUpdateCartProducts,
   findProductsBatch,
@@ -19,8 +21,9 @@ import {
   removeCartProducts,
   requireCartContext,
   setupCartForAddress,
+  type CartSetupResult,
 } from '../mcp/silpo-tools';
-import type { PlanDecision } from './plan';
+import type { CartWriteOutput, FinalizeOutput, PlanDecision } from './plan';
 import type { LlmUsage, Run, Step, StepKind, ToolCall } from './types';
 
 export interface ExecuteContext {
@@ -77,6 +80,7 @@ type Decision = Exclude<PlanDecision, { kind: 'done' }>;
 async function runDecision(
   decision: Decision,
   run: Run,
+  steps: Step[],
   ctx: ExecuteContext,
   toolCalls: ToolCall[],
   llm: LlmUsage[],
@@ -113,7 +117,13 @@ async function runDecision(
         ),
       );
 
-      return { picked: outcome.picked, reason: outcome.reason, detail: outcome.detail };
+      return {
+        picked: outcome.picked,
+        reason: outcome.reason,
+        detail: outcome.detail,
+        candidates,
+        anomalyDetected: outcome.anomalyDetected,
+      };
     }
 
     case 'cart_write': {
@@ -143,13 +153,38 @@ async function runDecision(
       );
 
       const updated = await fetchCartState(toolCalls, ctx.sessionId, shoppingCartId);
-      return updated;
+      const itemsInCart = updated.cart.shipments.reduce((n, s) => n + s.products.length, 0);
+
+      return {
+        shoppingCartId,
+        productId: decision.picked.id,
+        name: decision.picked.name,
+        quantity: decision.item.quantity,
+        price: decision.picked.price,
+        itemsInCart,
+      } satisfies CartWriteOutput;
     }
 
     case 'finalize': {
       const shoppingCartId = await requireShoppingCartId(toolCalls, ctx.sessionId);
       const cartState = await fetchCartState(toolCalls, ctx.sessionId, shoppingCartId);
-      return { checkoutStatus: getCheckoutStatus(cartState) };
+      const checkoutStatus = getCheckoutStatus(cartState);
+
+      const setupStep = steps.find((s) => s.kind === 'setup_cart' && s.status === 'succeeded');
+      const hadItemsBefore = setupStep
+        ? (setupStep.output as CartSetupResult).cart.shipments.some((s) => (s.products?.length ?? 0) > 0)
+        : false;
+
+      const addedItems: AddedItem[] = steps
+        .filter((s) => s.kind === 'cart_write' && s.status === 'succeeded')
+        .map((s) => {
+          const output = s.output as CartWriteOutput;
+          return { name: output.name, quantity: output.quantity, price: output.price };
+        });
+
+      const spokenSummary = buildSpokenSummary(cartState, addedItems, hadItemsBefore);
+
+      return { cartState, checkoutStatus, spokenSummary } satisfies FinalizeOutput;
     }
   }
 }
@@ -164,7 +199,7 @@ export async function executeStep(run: Run, steps: Step[], decision: Decision, c
   const llm: LlmUsage[] = [];
 
   try {
-    const output = await runDecision(decision, run, ctx, toolCalls, llm);
+    const output = await runDecision(decision, run, steps, ctx, toolCalls, llm);
     return {
       runId: run.id,
       kind: decision.kind,
@@ -189,6 +224,7 @@ export async function executeStep(run: Run, steps: Step[], decision: Decision, c
       idempotencyKey,
       input: decision,
       error: e instanceof Error ? e.message : 'Unknown error',
+      errorCode: e instanceof ReauthRequiredError ? 'reauth_required' : undefined,
       toolCalls,
       llm: llm.length > 0 ? llm : undefined,
       startedAt,

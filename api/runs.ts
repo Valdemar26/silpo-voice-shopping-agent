@@ -35,7 +35,7 @@ export default async function handler(req: Request): Promise<Response> {
 
   try {
     const run = await createRun(session.sessionId, { address: body.address, request: body.request });
-    return withSessionCookie(json({ runId: run.id }, 201), session);
+    return withSessionCookie(json({ run }, 201), session);
   } catch (e) {
     return withSessionCookie(errorResponse(e), session);
   }

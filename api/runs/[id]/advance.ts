@@ -55,16 +55,20 @@ export default async function handler(req: Request): Promise<Response> {
     }
 
     if (TERMINAL_STATUSES.has(current.run.status)) {
-      return withSessionCookie(json(current, 200), session);
+      return withSessionCookie(json({ run: current.run, steps: current.steps, next: null }, 200), session);
     }
 
     const decision = planNext(current.run, current.steps);
 
     if (decision.kind === 'done') {
       const updatedRun = await updateRun(runId, { status: 'succeeded', currentStep: undefined });
-      return withSessionCookie(json({ run: updatedRun, steps: current.steps }, 200), session);
+      return withSessionCookie(json({ run: updatedRun, steps: current.steps, next: null }, 200), session);
     }
 
+    // Intermediate write for the duration of the execution below — visible
+    // only to a concurrent GET /api/runs/[id] while this request is in
+    // flight. The response this request itself returns is recomputed fresh
+    // from the journal after appendStep, below.
     await updateRun(runId, { status: 'running', currentStep: decision.kind });
 
     const apiKey = process.env['ANTHROPIC_API_KEY'];
@@ -75,15 +79,28 @@ export default async function handler(req: Request): Promise<Response> {
 
     const newStepData = await executeStep(current.run, current.steps, decision, ctx);
     const newStep = await appendStep(newStepData);
+    const allSteps = [...current.steps, newStep];
 
-    const updatedRun =
-      newStep.status === 'failed'
-        ? await updateRun(runId, { status: 'failed', error: newStep.error })
-        : newStep.kind === 'finalize'
-          ? await updateRun(runId, { status: 'succeeded', currentStep: undefined })
-          : await updateRun(runId, { status: 'running', currentStep: newStep.kind });
+    if (newStep.status === 'failed') {
+      const updatedRun = await updateRun(runId, { status: 'failed', error: newStep.error, currentStep: undefined });
+      return withSessionCookie(json({ run: updatedRun, steps: allSteps, next: null }, 200), session);
+    }
 
-    return withSessionCookie(json({ run: updatedRun, steps: [...current.steps, newStep] }, 200), session);
+    // currentStep now means "what will run on the NEXT advance() call", not
+    // "what just finished" — a step is only appended to the journal after it
+    // completes, so the journal's own last entry is always already done; the
+    // client needs this re-planned decision to render a 'running' placeholder
+    // for the step that's actually still ahead of it (see
+    // lib/control-plane/journal-to-steps.ts).
+    const next = planNext(current.run, allSteps);
+
+    if (next.kind === 'done') {
+      const updatedRun = await updateRun(runId, { status: 'succeeded', currentStep: undefined });
+      return withSessionCookie(json({ run: updatedRun, steps: allSteps, next: null }, 200), session);
+    }
+
+    const updatedRun = await updateRun(runId, { status: 'running', currentStep: next.kind });
+    return withSessionCookie(json({ run: updatedRun, steps: allSteps, next }, 200), session);
   } catch (e) {
     return withSessionCookie(errorResponse(e), session);
   } finally {

@@ -37,6 +37,10 @@ export interface Step {
   input: unknown;
   output?: unknown;
   error?: string;
+  // Set when `error` came from a specific, UI-actionable cause — currently
+  // only 'reauth_required' (ReauthRequiredError, see lib/mcp/oauth.ts),
+  // which the client maps straight to SilpoAgentService.reauthRequired.
+  errorCode?: string;
   toolCalls: ToolCall[];
   llm?: LlmUsage[];
   startedAt: number;

@@ -5,6 +5,7 @@
 // existing SilpoAgentService.run() (src/app/services/silpo-agent.ts):
 // setup_cart -> parse -> select_product (per parsed item) -> cart_write (per
 // item whose select_product picked something) -> finalize -> done.
+import type { CartState, CheckoutStatus } from '../agent/cart-state';
 import type { ParsedItem } from '../agent/parse-items-core';
 import type { SearchProduct } from '../agent/pick-product';
 import type { Run, Step, StepKind } from './types';
@@ -17,6 +18,34 @@ export interface SelectProductOutput {
   picked: SearchProduct | null;
   reason: 'no_candidates' | 'not_relevant' | 'ok';
   detail: string;
+  // Every candidate find_products_batch returned for this query, regardless
+  // of outcome — the client builds its discount-alternatives list from this
+  // (see SilpoAgentService.registerDiscountAlternatives), same data
+  // searchAndPickProduct used to register directly.
+  candidates: SearchProduct[];
+  // True when the price-anomaly fallback in selectProduct fired — mirrors
+  // PickOutcome.anomalyDetected (lib/agent/pick-product.ts).
+  anomalyDetected: boolean;
+}
+
+export interface CartWriteOutput {
+  shoppingCartId: string;
+  productId: string;
+  name: string;
+  quantity: number;
+  price: number;
+  // Total product count across all shipments after this write — informational,
+  // not currently read by the client, but cheap to expose alongside the rest
+  // of the summary instead of the full (possibly large) CartState.
+  itemsInCart: number;
+}
+
+export interface FinalizeOutput {
+  cartState: CartState;
+  checkoutStatus: CheckoutStatus;
+  // Built server-side via lib/agent/spoken-summary.ts's buildSpokenSummary —
+  // the client just hands this straight to TtsService.speak().
+  spokenSummary: string;
 }
 
 // itemKey = index of the parsed item + its query, e.g. "0:молоко" — shared
@@ -33,6 +62,12 @@ export type PlanDecision =
   | { kind: 'cart_write'; index: number; itemKey: string; item: ParsedItem; picked: SearchProduct }
   | { kind: 'finalize' }
   | { kind: 'done' };
+
+// What api/runs/[id]/advance.ts's `next` field and
+// lib/control-plane/journal-to-steps.ts's running placeholder actually deal
+// in — 'done' never reaches either of them (the route resolves it straight
+// to a terminal run status and sends `next: null` instead).
+export type NonTerminalDecision = Exclude<PlanDecision, { kind: 'done' }>;
 
 export function planNext(run: Run, steps: Step[]): PlanDecision {
   const succeeded = steps.filter((s) => s.status === 'succeeded');
