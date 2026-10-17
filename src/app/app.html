@@ -181,6 +181,18 @@
       </section>
     }
 
+    @if (agent.failed() && !agent.reauthRequired()) {
+      <button
+        type="button"
+        class="btn-solid retry-btn"
+        data-cy="retry-btn"
+        [disabled]="agent.running()"
+        (click)="onRetry()"
+      >
+        Повторити
+      </button>
+    }
+
     @if (agent.pendingApproval(); as items) {
       <app-approval-panel
         [items]="items"

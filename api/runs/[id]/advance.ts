@@ -100,6 +100,20 @@ export default async function handler(req: Request): Promise<Response> {
     };
 
     const newStepData = await executeStep(current.run, current.steps, decision, ctx);
+
+    // Demo-only: simulates the process dying between a step's real side
+    // effects (already executed above by executeStep) and the journal write
+    // that would normally record them — exercises the same recovery path a
+    // genuine mid-flight crash would (idempotent cart_write in
+    // lib/control-plane/execute.ts, POST /api/runs/[id]/retry). Inert unless
+    // FAULT_INJECTION_SECRET is configured AND the request's x-fault-inject
+    // header matches it exactly; the client UI never sends this header —
+    // only for manual demos via curl/devtools console.
+    const faultSecret = process.env['FAULT_INJECTION_SECRET'];
+    if (faultSecret && req.headers.get('x-fault-inject') === faultSecret) {
+      throw new Error('Fault injection: simulated crash after executeStep, before appendStep');
+    }
+
     const newStep = await appendStep(newStepData);
     const allSteps = [...current.steps, newStep];
 

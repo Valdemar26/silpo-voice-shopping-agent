@@ -1,6 +1,7 @@
 export const config = { runtime: 'edge' };
 
 import { errorResponse, json } from '../../../lib/mcp/http';
+import { planNext } from '../../../lib/control-plane/plan';
 import { getRunWithSteps } from '../../../lib/control-plane/store';
 import { readOrCreateSessionId, withSessionCookie } from '../../../lib/mcp/session';
 
@@ -27,7 +28,11 @@ export default async function handler(req: Request): Promise<Response> {
     if (!result || result.run.sessionId !== session.sessionId) {
       return withSessionCookie(json({ error: 'Run not found' }, 404), session);
     }
-    return withSessionCookie(json(result, 200), session);
+    // Same { run, steps, next } shape as advance.ts/approve.ts — needed both
+    // for the initial resume (SilpoAgentService.resumeIfAny()) and for
+    // re-syncing after a 409 from POST /api/runs/[id]/approve.
+    const next = planNext(result.run, result.steps);
+    return withSessionCookie(json({ ...result, next: next.kind === 'done' ? null : next }, 200), session);
   } catch (e) {
     return withSessionCookie(errorResponse(e), session);
   }

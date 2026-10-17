@@ -4,7 +4,18 @@ import type { Run, Step } from './types';
 
 const TTL_SECONDS = 7 * 24 * 60 * 60;
 const MAX_RUNS_PER_SESSION = 50;
-const LOCK_TTL_SECONDS = 60;
+// The client's wait budget for a 409 "already being advanced" response
+// (SilpoAgentService.drive()'s LOCK_WAIT_BUDGET_MS, 40s) MUST exceed this —
+// otherwise, after a process genuinely dies mid-step, the client gives up
+// before the lock it's waiting on actually expires. 30s comfortably covers
+// the slowest step (setup_cart, a handful of MCP round-trips, ~2s normally)
+// while still recovering quickly from a real crash.
+const LOCK_TTL_SECONDS = 30;
+// Runs older than this and still non-terminal are almost certainly
+// abandoned (tab closed mid-run, never reopened) — findResumableRun below
+// sweeps them into 'cancelled' instead of resurfacing them forever.
+const RESUMABLE_MAX_AGE_MS = 30 * 60 * 1000;
+const RESUMABLE_STATUSES = new Set<Run['status']>(['queued', 'running', 'waiting_approval']);
 
 const runKey = (runId: string) => `cp:run:${runId}`;
 const runStepsKey = (runId: string) => `cp:run:${runId}:steps`;
@@ -83,6 +94,32 @@ export async function listRuns(sessionId: string, limit = 20): Promise<Run[]> {
   const runs = await Promise.all(ids.map((id) => redis.get<Run>(runKey(id))));
 
   return runs.filter((run): run is Run => run !== null);
+}
+
+// Used on page load (SilpoAgentService.resumeIfAny(), via GET /api/runs) to
+// pick back up a run that was still in flight when the tab was closed or
+// reloaded. listRuns is already newest-first (lpush), so the first
+// non-terminal, non-stale run encountered is the one to resume; any OTHER
+// non-terminal run further back is expired along the way instead of being
+// left to resurface indefinitely. 'failed' runs are deliberately excluded —
+// they're not auto-resumed, just abandoned on reload (see plan notes).
+export async function findResumableRun(sessionId: string): Promise<{ run: Run; steps: Step[] } | null> {
+  const runs = await listRuns(sessionId);
+  const now = Date.now();
+  let resumable: Run | null = null;
+
+  for (const run of runs) {
+    if (!RESUMABLE_STATUSES.has(run.status)) continue;
+
+    if (now - run.createdAt > RESUMABLE_MAX_AGE_MS) {
+      await updateRun(run.id, { status: 'cancelled', error: 'expired' });
+      continue;
+    }
+
+    if (!resumable) resumable = run;
+  }
+
+  return resumable ? getRunWithSteps(resumable.id) : null;
 }
 
 // lib/redis-lock.ts — a short-lived mutex so two concurrent /advance calls

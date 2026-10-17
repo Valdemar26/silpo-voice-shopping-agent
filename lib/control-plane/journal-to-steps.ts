@@ -39,6 +39,16 @@ function formatItemLabel(query: string, quantity: number, selector?: Selector): 
   return selector === 'discount' ? `${base} (по акції)` : base;
 }
 
+// Surfaces a retried step's attempt count so "it failed, got retried, failed
+// again" is visible in the trace instead of silently looking identical to a
+// first try. Applied only to a step's own primary row (never the derived
+// sub-rows like trace-*/no-items, which don't have their own attempt
+// concept) and never to the 'running' next-placeholder, which has no Step
+// (only a PlanDecision) to read an attempt count from.
+function withAttempt(step: Step, agentStep: AgentStep): AgentStep {
+  return step.attempt > 1 ? { ...agentStep, label: `${agentStep.label} (спроба ${step.attempt})` } : agentStep;
+}
+
 // Shared by the real cart_write journal entry and its 'running' placeholder
 // — a replace keeps its old-item/new-item framing instead of the generic
 // "Додавання в кошик" label, same text the old combined replace step used to
@@ -51,11 +61,13 @@ function cartWriteLabel(item: ParsedItem, name: string, quantity: number): strin
 function setupCartSteps(run: Run, step: Step): AgentStep[] {
   const label = `Налаштування кошика для адреси «${run.input.address}»`;
   if (step.status === 'failed') {
-    return [{ id: 'setup-cart', label, status: 'error', detail: step.error }];
+    return [withAttempt(step, { id: 'setup-cart', label, status: 'error', detail: step.error })];
   }
 
   const output = step.output as { shoppingCartId: string; trace: CartSetupTraceEntry[] };
-  const steps: AgentStep[] = [{ id: 'setup-cart', label, status: 'done', detail: `Кошик ${output.shoppingCartId}` }];
+  const steps: AgentStep[] = [
+    withAttempt(step, { id: 'setup-cart', label, status: 'done', detail: `Кошик ${output.shoppingCartId}` }),
+  ];
   output.trace.forEach((entry, i) => {
     steps.push({ id: `trace-${i}-${entry.step}`, label: entry.step, status: 'done', detail: entry.detail });
   });
@@ -64,7 +76,7 @@ function setupCartSteps(run: Run, step: Step): AgentStep[] {
 
 function parseSteps(step: Step): AgentStep[] {
   if (step.status === 'failed') {
-    return [{ id: 'parse-query', label: 'Розбір запиту', status: 'error', detail: step.error }];
+    return [withAttempt(step, { id: 'parse-query', label: 'Розбір запиту', status: 'error', detail: step.error })];
   }
 
   const items = (step.output as ParseOutput).items;
@@ -79,7 +91,7 @@ function parseSteps(step: Step): AgentStep[] {
           .join(', ')
       : 'Товарів не розпізнано';
 
-  const steps: AgentStep[] = [{ id: 'parse-query', label: 'Розбір запиту', status: 'done', detail }];
+  const steps: AgentStep[] = [withAttempt(step, { id: 'parse-query', label: 'Розбір запиту', status: 'done', detail })];
   if (items.length === 0) {
     steps.push({
       id: 'no-items',
@@ -98,31 +110,31 @@ function selectProductStep(step: Step): AgentStep {
   const label = `Пошук: «${decision.item.query}»${criterionSuffix}`;
 
   if (step.status === 'failed') {
-    return { id, label, status: 'error', detail: step.error };
+    return withAttempt(step, { id, label, status: 'error', detail: step.error });
   }
 
   const output = step.output as SelectProductOutput;
-  return { id, label, status: output.picked === null ? 'error' : 'done', detail: output.detail };
+  return withAttempt(step, { id, label, status: output.picked === null ? 'error' : 'done', detail: output.detail });
 }
 
 function cartWriteStep(step: Step): AgentStep {
   const decision = step.input as Extract<NonTerminalDecision, { kind: 'cart_write' }>;
 
   if (step.status === 'failed') {
-    return {
+    return withAttempt(step, {
       id: `add-${decision.picked.id}`,
       label: cartWriteLabel(decision.item, decision.picked.name, decision.item.quantity),
       status: 'error',
       detail: step.error,
-    };
+    });
   }
 
   const output = step.output as CartWriteOutput;
-  return {
+  return withAttempt(step, {
     id: `add-${output.productId}`,
     label: cartWriteLabel(decision.item, output.name, output.quantity),
     status: 'done',
-  };
+  });
 }
 
 // Exact port of the old addCheckoutStatusStep (src/app/services/silpo-agent.ts)
@@ -176,9 +188,14 @@ function approvalStep(step: Step): AgentStep {
 
 function finalizeStep(step: Step): AgentStep {
   if (step.status === 'failed') {
-    return { id: 'checkout-status', label: 'Не вдалося визначити статус оформлення', status: 'error', detail: step.error };
+    return withAttempt(step, {
+      id: 'checkout-status',
+      label: 'Не вдалося визначити статус оформлення',
+      status: 'error',
+      detail: step.error,
+    });
   }
-  return checkoutStatusAgentStep((step.output as FinalizeOutput).checkoutStatus);
+  return withAttempt(step, checkoutStatusAgentStep((step.output as FinalizeOutput).checkoutStatus));
 }
 
 // The journal only ever holds already-finished entries (appendStep writes a

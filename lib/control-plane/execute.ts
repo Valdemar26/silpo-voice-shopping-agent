@@ -134,16 +134,40 @@ async function runDecision(
 
     case 'cart_write': {
       const shoppingCartId = await requireShoppingCartId(toolCalls, ctx.sessionId);
+      const freshCart = await fetchCartState(toolCalls, ctx.sessionId, shoppingCartId);
+
+      // Idempotent short-circuit — a previous attempt may already have
+      // written this exact product/quantity (e.g. the Silpo call succeeded
+      // but the process died before appendStep recorded it — see
+      // FAULT_INJECTION_SECRET in api/runs/[id]/advance.ts). Retrying would
+      // otherwise re-run Silpo calls that already happened, and for a
+      // replace specifically it would also wrongly fail on a target that's
+      // already gone (handled below).
+      const existingPicked = freshCart.cart.shipments
+        .flatMap((s) => s.products)
+        .find((p) => p.productId === decision.picked.id);
+
+      if (existingPicked && existingPicked.quantity === decision.item.quantity) {
+        const itemsInCart = freshCart.cart.shipments.reduce((n, s) => n + s.products.length, 0);
+        return {
+          shoppingCartId,
+          productId: decision.picked.id,
+          name: decision.picked.name,
+          quantity: decision.item.quantity,
+          price: decision.picked.price,
+          itemsInCart,
+        } satisfies CartWriteOutput;
+      }
 
       if (decision.item.type === 'replace') {
-        const freshCart = await fetchCartState(toolCalls, ctx.sessionId, shoppingCartId);
-        const existing = findCartProductByTarget(freshCart, decision.item.target);
-        if (!existing) {
-          throw new Error(`Replace target "${decision.item.target}" not found in the current cart`);
+        const existingTarget = findCartProductByTarget(freshCart, decision.item.target);
+        if (existingTarget) {
+          await timed(toolCalls, 'removeCartProducts', () =>
+            removeCartProducts(ctx.sessionId, shoppingCartId, [existingTarget.productId]),
+          );
         }
-        await timed(toolCalls, 'removeCartProducts', () =>
-          removeCartProducts(ctx.sessionId, shoppingCartId, [existing.productId]),
-        );
+        // else: a prior crashed attempt already removed it — nothing to
+        // undo, just proceed to (re-)add the new item below.
       }
 
       await timed(toolCalls, 'addOrUpdateCartProducts', () =>

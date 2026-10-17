@@ -27,6 +27,15 @@ interface AdvanceResponse {
 
 const MAX_ADVANCE_ATTEMPTS = 50;
 const LOCK_RETRY_DELAY_MS = 500;
+// Must exceed LOCK_TTL_SECONDS in lib/control-plane/store.ts (30s) —
+// otherwise, after a process genuinely dies mid-step, the client gives up
+// waiting on the lock before it actually expires server-side.
+const LOCK_WAIT_BUDGET_MS = 40_000;
+// Transient-failure backoff for the advance() call specifically (network
+// errors, 502/503/504) — separate from the 409 lock-wait above, which has
+// its own cadence/budget. 4xx (other than 409) is never retried here.
+const RETRY_DELAYS_MS = [500, 1000, 2000];
+const RETRYABLE_STATUSES = new Set([502, 503, 504]);
 const TERMINAL_RUN_STATUSES = new Set<Run['status']>(['succeeded', 'failed', 'cancelled']);
 
 function sleep(ms: number): Promise<void> {
@@ -69,8 +78,13 @@ export class SilpoAgentService {
   readonly pendingApproval = signal<ApprovalItem[] | null>(null);
   readonly approving = signal(false);
 
-  // Set once createRun() succeeds; read by drive()/approve()/reject() so the
-  // advance-loop and the approval round-trip always target the same run.
+  // True once a run lands in 'failed' — drives the "Повторити" button.
+  // Reset to false at the start of every run()/retry() attempt.
+  readonly failed = signal(false);
+
+  // Set once createRun() succeeds (or resumeIfAny() finds an in-flight run);
+  // read by drive()/approve()/reject()/retry() so every call targets the
+  // same run.
   private runId: string | null = null;
 
   // Drives the run entirely through the server control-plane
@@ -85,6 +99,7 @@ export class SilpoAgentService {
     this.steps.set([]);
     this.result.set(null);
     this.pendingApproval.set(null);
+    this.failed.set(false);
     this.runId = null;
 
     const run = await this.createRun(address, request);
@@ -113,32 +128,134 @@ export class SilpoAgentService {
     await this.respondToApproval(false, []);
   }
 
-  // Shared loop for both the initial run() and the continuation after an
-  // approved approve() — calls POST .../advance until the run reaches a
-  // terminal status (handled here, running() reset to false) or pauses on
-  // 'waiting_approval' (pendingApproval() set, running() stays true — the
-  // whole run is still "in progress" from the UI's point of view).
+  // Called once at app startup — picks back up a run that was still in
+  // flight when the tab was closed/reloaded (GET /api/runs; see
+  // lib/control-plane/store.ts's findResumableRun). Returns the resumed
+  // run's input so the caller (AppComponent) can repopulate the form, or
+  // null when there's nothing to resume.
+  async resumeIfAny(): Promise<{ address: string; request: string } | null> {
+    if (this.running()) return null;
+
+    // One-shot GET, deliberately without the postWithRetry wrapper (that's
+    // scoped to drive() only) — best-effort: any problem here just means
+    // nothing gets resumed, same as a fresh page load with no prior run.
+    let response: Response;
+    try {
+      response = await fetch('/api/runs');
+    } catch {
+      return null;
+    }
+    if (!response.ok) return null;
+
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      return null;
+    }
+
+    const found = data as { run: Run | null; steps?: Step[]; next?: NonTerminalDecision | null };
+    if (!found.run) return null;
+
+    this.runId = found.run.id;
+    this.running.set(true);
+    this.failed.set(false);
+
+    const shouldContinue = await this.applyAdvanceResponse({
+      run: found.run,
+      steps: found.steps ?? [],
+      next: found.next ?? null,
+    });
+    if (shouldContinue) {
+      await this.drive();
+    }
+
+    return { address: found.run.input.address, request: found.run.input.request };
+  }
+
+  // Retries the run's last failed step — POSTs /retry, then (if the run
+  // resumed) keeps driving the same advance cycle onward. See
+  // api/runs/[id]/retry.ts: it only clears the run's status, planNext then
+  // naturally re-derives and re-executes the exact same (kind, itemKey).
+  async retry(): Promise<void> {
+    const runId = this.runId;
+    if (!runId || this.running()) return;
+
+    this.running.set(true);
+    this.failed.set(false);
+
+    let response: Response;
+    try {
+      response = await fetch(`/api/runs/${runId}/retry`, { method: 'POST' });
+    } catch (e) {
+      this.addAdvanceErrorStep('Мережева помилка при повторі кроку', e);
+      this.running.set(false);
+      this.failed.set(true);
+      return;
+    }
+
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch (e) {
+      this.addAdvanceErrorStep('Невалідна відповідь сервера при повторі кроку', e);
+      this.running.set(false);
+      this.failed.set(true);
+      return;
+    }
+
+    if (!response.ok) {
+      this.flagReauthIfNeeded(data);
+      this.addAdvanceErrorStep('Не вдалося повторити крок', (data as { error?: string } | null)?.error ?? `HTTP ${response.status}`);
+      this.running.set(false);
+      this.failed.set(true);
+      return;
+    }
+
+    const shouldContinue = await this.applyAdvanceResponse(data as AdvanceResponse);
+    if (shouldContinue) {
+      await this.drive();
+    }
+  }
+
+  // Shared loop for the initial run(), the continuation after an approved
+  // approve(), resumeIfAny(), and retry() — calls POST .../advance until the
+  // run reaches a terminal status (handled here, running() reset to false)
+  // or pauses on 'waiting_approval' (pendingApproval() set, running() stays
+  // true — the whole run is still "in progress" from the UI's point of view).
   private async drive(): Promise<void> {
     const runId = this.runId;
     if (!runId) return;
 
-    for (let attempt = 0; attempt < MAX_ADVANCE_ATTEMPTS; attempt++) {
-      let response: Response;
-      try {
-        response = await fetch(`/api/runs/${runId}/advance`, { method: 'POST' });
-      } catch (e) {
-        this.addAdvanceErrorStep('Мережева помилка під час виконання запуску', e);
+    // Counts actual advance()-produced steps, NOT 409 lock-wait retries —
+    // those have their own, time-based budget below (LOCK_WAIT_BUDGET_MS),
+    // since they're waiting out someone else's lock, not making progress.
+    let stepAttempts = 0;
+    let lockWaitStartedAt: number | null = null;
+
+    while (stepAttempts < MAX_ADVANCE_ATTEMPTS) {
+      const response = await this.postWithRetry(`/api/runs/${runId}/advance`);
+      if (!response) {
         this.running.set(false);
         return;
       }
 
       // Another advance() for this run is already in flight (e.g. a stray
-      // retry) — the lock is short-lived, so just wait it out instead of
-      // treating it as a real failure.
+      // retry, or — if the lock holder genuinely crashed — waiting out its
+      // TTL; see LOCK_WAIT_BUDGET_MS's comment above for why this must
+      // outlast lib/control-plane/store.ts's LOCK_TTL_SECONDS).
       if (response.status === 409) {
+        lockWaitStartedAt ??= Date.now();
+        if (Date.now() - lockWaitStartedAt >= LOCK_WAIT_BUDGET_MS) {
+          this.addAdvanceErrorStep('Прогін зайнятий іншим запитом');
+          this.running.set(false);
+          return;
+        }
         await sleep(LOCK_RETRY_DELAY_MS);
         continue;
       }
+      lockWaitStartedAt = null;
+      stepAttempts++;
 
       let data: unknown;
       try {
@@ -159,36 +276,78 @@ export class SilpoAgentService {
         return;
       }
 
-      const current = data as AdvanceResponse;
-      this.steps.set(journalToAgentSteps(current.run, current.steps, current.next));
-
-      if (current.steps.some((s) => s.errorCode === 'reauth_required')) {
-        this.reauthRequired.set(true);
-      }
-
-      if (current.run.status === 'waiting_approval') {
-        const items = current.next?.kind === 'approval' ? current.next.items : [];
-        this.pendingApproval.set(items);
-        void this.tts.speak(buildApprovalPrompt(items));
-        return;
-      }
-
-      if (TERMINAL_RUN_STATUSES.has(current.run.status)) {
-        this.finalizeTerminalOutcome(current);
-        this.running.set(false);
-        return;
-      }
+      const shouldContinue = await this.applyAdvanceResponse(data as AdvanceResponse);
+      if (!shouldContinue) return;
     }
 
     this.addAdvanceErrorStep('Перевищено ліміт спроб виконання запуску');
     this.running.set(false);
   }
 
-  // Shared by drive()'s terminal branch and respondToApproval()'s rejection
-  // branch — result()/TTS/discountAlternatives only ever come from a
-  // succeeded finalize; 'failed'/'cancelled' already show their own error via
-  // steps(), nothing else to surface here.
+  // Transient-failure retry wrapper around a single POST — network errors or
+  // 502/503/504 get up to RETRY_DELAYS_MS.length retries with backoff before
+  // giving up (and showing an error step); a real response (success, 409, or
+  // any other 4xx/5xx) is returned immediately, untouched, for the caller to
+  // handle. Scoped to drive()'s advance() call only — createRun()/
+  // postApproval()/retry() each make a single plain attempt.
+  private async postWithRetry(url: string): Promise<Response | null> {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+      try {
+        const response = await fetch(url, { method: 'POST' });
+        if (response.ok || !RETRYABLE_STATUSES.has(response.status)) return response;
+        lastError = new Error(`HTTP ${response.status}`);
+      } catch (e) {
+        lastError = e;
+      }
+
+      if (attempt === RETRY_DELAYS_MS.length) break;
+      await sleep(RETRY_DELAYS_MS[attempt]);
+    }
+
+    this.addAdvanceErrorStep('Мережева помилка під час виконання запуску', lastError);
+    return null;
+  }
+
+  // Applies one { run, steps, next } response to state and decides whether
+  // the caller should keep driving. Shared by drive() (after each
+  // advance()), resumeIfAny() (after the initial GET /api/runs), retry()
+  // (after POST /retry), and respondToApproval() (after approve/reject, or a
+  // post-409 refetch) — one place for the
+  // steps()/reauthRequired()/pendingApproval()/failed() bookkeeping that used
+  // to be duplicated inline.
+  private async applyAdvanceResponse(current: AdvanceResponse): Promise<boolean> {
+    this.steps.set(journalToAgentSteps(current.run, current.steps, current.next));
+
+    if (current.steps.some((s) => s.errorCode === 'reauth_required')) {
+      this.reauthRequired.set(true);
+    }
+
+    if (current.run.status === 'waiting_approval') {
+      const items = current.next?.kind === 'approval' ? current.next.items : [];
+      this.pendingApproval.set(items);
+      void this.tts.speak(buildApprovalPrompt(items));
+      return false;
+    }
+
+    this.pendingApproval.set(null);
+
+    if (TERMINAL_RUN_STATUSES.has(current.run.status)) {
+      this.finalizeTerminalOutcome(current);
+      this.running.set(false);
+      return false;
+    }
+
+    return true; // 'queued' / 'running' — keep driving
+  }
+
+  // Shared by applyAdvanceResponse's terminal branch and respondToApproval()'s
+  // rejection branch — result()/TTS/discountAlternatives only ever come from
+  // a succeeded finalize; 'failed'/'cancelled' already show their own error
+  // via steps(), nothing else to surface here.
   private finalizeTerminalOutcome(current: AdvanceResponse): void {
+    this.failed.set(current.run.status === 'failed');
     if (current.run.status !== 'succeeded') return;
 
     const finalizeStep = current.steps.find((s) => s.kind === 'finalize' && s.status === 'succeeded');
@@ -224,19 +383,9 @@ export class SilpoAgentService {
     }
     if (!current) return;
 
-    this.pendingApproval.set(null);
-    this.steps.set(journalToAgentSteps(current.run, current.steps, current.next));
-
-    if (current.steps.some((s) => s.errorCode === 'reauth_required')) {
-      this.reauthRequired.set(true);
-    }
-
-    if (current.run.status === 'running') {
+    const shouldContinue = await this.applyAdvanceResponse(current);
+    if (shouldContinue) {
       await this.drive();
-    } else {
-      // 'cancelled' (rejected, or an empty approved list) — terminal already.
-      this.finalizeTerminalOutcome(current);
-      this.running.set(false);
     }
   }
 
@@ -252,6 +401,14 @@ export class SilpoAgentService {
       this.addAdvanceErrorStep('Мережева помилка при підтвердженні', e);
       this.running.set(false);
       return null;
+    }
+
+    // A 409 here means "already resolved" (double click, or a race with
+    // another concurrent approve()) — the UI's pendingApproval() is stale,
+    // not just failed, so re-sync from the server's own view instead of
+    // leaving the approval panel sitting there unresolved.
+    if (response.status === 409) {
+      return this.refetchRunState(runId);
     }
 
     let data: unknown;
@@ -274,6 +431,29 @@ export class SilpoAgentService {
     }
 
     return data as AdvanceResponse;
+  }
+
+  // Re-syncs with the server's own view of a run — used after a 409 from
+  // POST /approve, where the client's state is simply stale rather than the
+  // request having failed outright. api/runs/[id]/index.ts returns the same
+  // { run, steps, next } shape as advance/approve/retry.
+  private async refetchRunState(runId: string): Promise<AdvanceResponse | null> {
+    try {
+      const response = await fetch(`/api/runs/${runId}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        this.addAdvanceErrorStep('Не вдалося оновити стан запуску', data?.error ?? `HTTP ${response.status}`);
+        this.running.set(false);
+        return null;
+      }
+
+      return data as AdvanceResponse;
+    } catch (e) {
+      this.addAdvanceErrorStep('Мережева помилка при оновленні стану запуску', e);
+      this.running.set(false);
+      return null;
+    }
   }
 
   private async createRun(address: string, request: string): Promise<Run | null> {

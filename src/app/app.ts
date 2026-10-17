@@ -53,6 +53,20 @@ export class AppComponent {
         this.micLevel.stop();
       }
     });
+
+    // Pick back up a run that survived a reload (SilpoAgentService.
+    // resumeIfAny()) — fire-and-forget from the constructor since it can't be
+    // awaited here; `form` below is already initialized by the time this body
+    // runs (field initializers run before the constructor body regardless of
+    // their textual order in the class).
+    void this.resumeRun();
+  }
+
+  private async resumeRun(): Promise<void> {
+    const input = await this.agent.resumeIfAny();
+    if (input) {
+      this.form.setValue({ address: input.address, request: input.request });
+    }
   }
 
   protected readonly form = this.fb.nonNullable.group({
@@ -269,6 +283,10 @@ export class AppComponent {
 
   protected onReject(): void {
     void this.agent.reject();
+  }
+
+  protected onRetry(): void {
+    void this.agent.retry();
   }
 
   protected toggleVoiceInput(): void {
