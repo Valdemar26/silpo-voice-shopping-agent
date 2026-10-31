@@ -4,13 +4,40 @@ export default function App() {
   const [address, setAddress] = useState('');
   const [request, setRequest] = useState('');
 
+  const [run, setRun] = useState<unknown>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   console.log('render: ', { address, request });
 
   const canSubmit = address.trim() !== '' && request.trim() !== '';
 
-  function handleSubmit(e: FormEvent) {
+  // function handleSubmit(e: FormEvent) {
+  //   e.preventDefault();
+  //   console.log('submit', { address, request });
+  // }
+
+  async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    console.log('submit', { address, request });
+    setLoading(true);
+    setError(null);
+
+    try {
+      const res = await fetch('/api/runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address, request })
+      });
+
+      const data = await res.json();
+
+      if(!res.ok) throw new Error(`${res.status}: ${JSON.stringify(data)}`);
+      setRun(data.run);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -28,7 +55,11 @@ export default function App() {
           value={request}
           onChange={(e) => setRequest(e.target.value)}
         ></textarea>
-        <button type="submit" disabled={!canSubmit}>Run!</button>
+        <button type="submit" disabled={!canSubmit || loading}>
+          {loading ? 'Running...' : 'Run!'}
+        </button>
+        { error && <p style={{ color: 'red' }}>{error}</p> }
+        { run !== null && <pre>{JSON.stringify(run, null, 2)}</pre> }
       </form>
     </main>
   );
