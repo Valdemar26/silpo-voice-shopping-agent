@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 export type Run = { id: string; status: string };
 
@@ -18,6 +18,24 @@ export function useAgentRun() {
   const [steps, setSteps] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+
+    fetch('/api/runs', { signal: ctrl.signal })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.run) {
+          setRun(data.run);
+          setSteps(data.steps ?? []);
+        }
+      })
+      .catch((err) => {
+        if (err.name !== 'AbortError') setError(String(err));
+      });
+
+    return () => ctrl.abort();
+  }, []);
 
   async function call(action: () => Promise<void>) {
     setLoading(true);
