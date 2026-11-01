@@ -1,21 +1,22 @@
 import { useState, type FormEvent } from 'react';
 
+ export type Run = {
+   id: string;
+   status: string;
+}
+
 export default function App() {
   const [address, setAddress] = useState('');
   const [request, setRequest] = useState('');
 
-  const [run, setRun] = useState<unknown>(null);
+  const [run, setRun] = useState<Run | null>(null);
+  const [steps, setSteps] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   console.log('render: ', { address, request });
 
   const canSubmit = address.trim() !== '' && request.trim() !== '';
-
-  // function handleSubmit(e: FormEvent) {
-  //   e.preventDefault();
-  //   console.log('submit', { address, request });
-  // }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -33,6 +34,24 @@ export default function App() {
 
       if(!res.ok) throw new Error(`${res.status}: ${JSON.stringify(data)}`);
       setRun(data.run);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function advanceOnce() {
+    if(!run) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/runs/${run.id}/advance`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(`${res.status}: ${JSON.stringify(data)}`);
+      setRun(data.run);
+      setSteps(data.steps);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -58,9 +77,18 @@ export default function App() {
         <button type="submit" disabled={!canSubmit || loading}>
           {loading ? 'Running...' : 'Run!'}
         </button>
-        { error && <p style={{ color: 'red' }}>{error}</p> }
-        { run !== null && <pre>{JSON.stringify(run, null, 2)}</pre> }
       </form>
+      {error && <p style={{ color: 'red' }}>{error}</p>}
+
+      {run && (
+        <>
+          <p>Status: {run.status}</p>
+          <button type="button" onClick={advanceOnce} disabled={loading}>
+            Advance
+          </button>
+          <pre>{JSON.stringify(steps, null, 2)}</pre>
+        </>
+      )}
     </main>
   );
 
