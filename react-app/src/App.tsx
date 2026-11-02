@@ -3,7 +3,7 @@ import { useAgentRun } from './useAgentRun';
 import { StepList } from './StepList';
 
 export default function App() {
-  const { run, steps, loading, error, start, advance } = useAgentRun();
+  const { run, steps, loading, error, start, stop } = useAgentRun();
 
   const [address, setAddress] = useState('');
   const [request, setRequest] = useState('');
@@ -42,8 +42,8 @@ export default function App() {
       {run && (
         <>
           <p>Status: {run.status}</p>
-          <button type="button" onClick={advance} disabled={loading}>
-            Advance
+          <button type="button" onClick={stop} disabled={loading}>
+            Stop
           </button>
           {needsLogin && <p>Потрібен вхід у Сільпо</p>}
           <StepList steps={steps} />
