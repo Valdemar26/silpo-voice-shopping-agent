@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 export type Run = { id: string; status: string };
+export type Step = { index: number; kind: string; status: string; error?: string; errorCode?: string };
 
 async function postJson(url: string, body?: unknown) {
   const res = await fetch(url, {
@@ -15,7 +16,7 @@ async function postJson(url: string, body?: unknown) {
 
 export function useAgentRun() {
   const [run, setRun] = useState<Run | null>(null);
-  const [steps, setSteps] = useState<unknown[]>([]);
+  const [steps, setSteps] = useState<Step[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useAgentRun } from './useAgentRun';
+import { StepList } from './StepList';
 
 export default function App() {
   const { run, steps, loading, error, start, advance } = useAgentRun();
@@ -10,6 +11,7 @@ export default function App() {
   console.log('render: ', { address, request });
 
   const canSubmit = address.trim() !== '' && request.trim() !== '';
+  const needsLogin = steps.some((s) => s.errorCode === 'reauth_required');
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -43,7 +45,8 @@ export default function App() {
           <button type="button" onClick={advance} disabled={loading}>
             Advance
           </button>
-          <pre>{JSON.stringify(steps, null, 2)}</pre>
+          {needsLogin && <p>Потрібен вхід у Сільпо</p>}
+          <StepList steps={steps} />
         </>
       )}
     </main>
