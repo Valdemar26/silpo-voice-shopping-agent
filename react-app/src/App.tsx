@@ -45,7 +45,11 @@ export default function App() {
           <button type="button" onClick={stop} disabled={loading}>
             Stop
           </button>
-          {needsLogin && <p>Потрібен вхід у Сільпо</p>}
+          {needsLogin && (
+            <p>
+              <a href="/api/mcp/auth/login">Увійти через Сільпо</a>
+            </p>
+          )}
           <StepList steps={steps} />
         </>
       )}
