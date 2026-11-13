@@ -7,19 +7,30 @@ export class TtsService {
   // outage, autoplay block) is swallowed so it can never interrupt the
   // agent flow or leave the user without the result.
   async speak(text: string): Promise<void> {
+    const startedAt = performance.now();
     try {
       const response = await fetch('/api/tts/speak', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
       });
-      if (!response.ok) return;
+      const responseAt = performance.now();
+      if (!response.ok) {
+        console.info(`[tts] /api/tts/speak HTTP ${response.status} after ${Math.round(responseAt - startedAt)} ms`);
+        return;
+      }
 
       const url = URL.createObjectURL(await response.blob());
+      const bodyAt = performance.now();
       const audio = new Audio(url);
       audio.addEventListener('ended', () => URL.revokeObjectURL(url));
       audio.addEventListener('error', () => URL.revokeObjectURL(url));
       await audio.play();
+      const playingAt = performance.now();
+      console.info(
+        `[tts] ${text.length} chars: response ${Math.round(responseAt - startedAt)} ms, ` +
+          `audio downloaded ${Math.round(bodyAt - startedAt)} ms, playback started ${Math.round(playingAt - startedAt)} ms`,
+      );
     } catch {
       // ignored — see comment above
     }
