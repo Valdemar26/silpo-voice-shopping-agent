@@ -1,15 +1,32 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// pickAddressCandidate is pure — the MCP client is mocked only so importing
-// silpo-tools doesn't pull in the OAuth/Redis chain.
-vi.mock('./client', () => ({ callMcpTool: vi.fn() }));
+// The MCP client is mocked at the callMcpTool boundary — that keeps the
+// OAuth/Redis chain out of the import, and lets the cart tests assert exactly
+// which Silpo tool got called with what.
+const { callMcpTool } = vi.hoisted(() => ({ callMcpTool: vi.fn() }));
+vi.mock('./client', () => ({ callMcpTool }));
 
 import {
+  addOrUpdateCartProducts,
   AddressAmbiguousError,
   AddressHouseNotConfirmedError,
   pickAddressCandidate,
+  removeCartProducts,
   type ResolvedAddress,
 } from './silpo-tools';
+
+function mockCart(lines: Array<{ id?: string; productId: string; quantity: number }>) {
+  callMcpTool.mockImplementation(async (_sessionId: string, tool: string) => {
+    if (tool === 'silpo_get_shopping_cart_by_id') {
+      return { cart: { shipments: [{ branchId: 'b1', companyId: 'c1', products: lines.map((l) => ({ companyId: 'c1', ...l })) }] } };
+    }
+    return { success: true };
+  });
+}
+
+function writes() {
+  return callMcpTool.mock.calls.filter(([, tool]) => tool !== 'silpo_get_shopping_cart_by_id');
+}
 
 // Live silpo_find_address response for "Львів, Малоголосківська вулиця, 8є".
 const BUILDING: ResolvedAddress = {
@@ -68,5 +85,96 @@ describe('pickAddressCandidate', () => {
     };
 
     expect(() => pickAddressCandidate([streetOnly])).toThrow(AddressHouseNotConfirmedError);
+  });
+});
+
+describe('addOrUpdateCartProducts', () => {
+  const MILK = { productId: 'p-milk', companyId: 'c1', branchId: 'b1', quantity: 2 };
+  const BREAD = { productId: 'p-bread', companyId: 'c1', branchId: 'b1', quantity: 1 };
+
+  beforeEach(() => callMcpTool.mockReset());
+
+  it('adds a product that is not in the cart yet via silpo_add_cart_products, without legacy fields', async () => {
+    mockCart([]);
+
+    await addOrUpdateCartProducts('s1', 'cart-1', [{ ...MILK, addQuantity: false } as typeof MILK]);
+
+    expect(writes()).toEqual([
+      ['s1', 'silpo_add_cart_products', { shoppingCartId: 'cart-1', products: [MILK] }],
+    ]);
+  });
+
+  it('sets (not adds) the quantity of a product already in the cart via its line-item id', async () => {
+    mockCart([{ id: 'line-milk', productId: 'p-milk', quantity: 1 }]);
+
+    await addOrUpdateCartProducts('s1', 'cart-1', [MILK]);
+
+    // quantity is the requested total (2), not current+requested (3).
+    expect(writes()).toEqual([
+      ['s1', 'silpo_update_cart_products', { shoppingCartId: 'cart-1', products: [{ id: 'line-milk', quantity: 2 }] }],
+    ]);
+  });
+
+  it('splits a mixed batch between update and add', async () => {
+    mockCart([{ id: 'line-milk', productId: 'p-milk', quantity: 1 }]);
+
+    await addOrUpdateCartProducts('s1', 'cart-1', [MILK, BREAD]);
+
+    expect(writes()).toEqual([
+      ['s1', 'silpo_update_cart_products', { shoppingCartId: 'cart-1', products: [{ id: 'line-milk', quantity: 2 }] }],
+      ['s1', 'silpo_add_cart_products', { shoppingCartId: 'cart-1', products: [BREAD] }],
+    ]);
+  });
+
+  it('refuses to write anything when an existing cart line has no line-item id', async () => {
+    mockCart([{ productId: 'p-milk', quantity: 1 }]);
+
+    await expect(addOrUpdateCartProducts('s1', 'cart-1', [BREAD, MILK])).rejects.toThrow(/no line-item id/);
+    expect(writes()).toEqual([]);
+  });
+});
+
+describe('removeCartProducts', () => {
+  beforeEach(() => callMcpTool.mockReset());
+
+  it('removes by cart line-item id, not productId', async () => {
+    mockCart([
+      { id: 'line-milk', productId: 'p-milk', quantity: 1 },
+      { id: 'line-bread', productId: 'p-bread', quantity: 1 },
+    ]);
+
+    await removeCartProducts('s1', 'cart-1', ['p-milk']);
+
+    expect(writes()).toEqual([
+      ['s1', 'silpo_remove_cart_products', { shoppingCartId: 'cart-1', products: [{ id: 'line-milk' }] }],
+    ]);
+  });
+
+  it('skips products that are no longer in the cart and removes the rest', async () => {
+    mockCart([{ id: 'line-bread', productId: 'p-bread', quantity: 1 }]);
+
+    await removeCartProducts('s1', 'cart-1', ['p-milk', 'p-bread']);
+
+    expect(writes()).toEqual([
+      ['s1', 'silpo_remove_cart_products', { shoppingCartId: 'cart-1', products: [{ id: 'line-bread' }] }],
+    ]);
+  });
+
+  it('makes no remove call when none of the products are in the cart', async () => {
+    mockCart([]);
+
+    await removeCartProducts('s1', 'cart-1', ['p-milk']);
+
+    expect(writes()).toEqual([]);
+  });
+
+  it('refuses to remove anything when a matching cart line has no line-item id', async () => {
+    mockCart([
+      { id: 'line-bread', productId: 'p-bread', quantity: 1 },
+      { productId: 'p-milk', quantity: 1 },
+    ]);
+
+    await expect(removeCartProducts('s1', 'cart-1', ['p-bread', 'p-milk'])).rejects.toThrow(/no line-item id/);
+    expect(writes()).toEqual([]);
   });
 });

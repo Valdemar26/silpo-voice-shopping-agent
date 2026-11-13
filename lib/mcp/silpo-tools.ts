@@ -59,7 +59,9 @@ export interface ShoppingCart {
     shipments: Array<{
       branchId: string;
       companyId: string;
-      products?: Array<{ productId: string; companyId: string; [key: string]: unknown }>;
+      // id is the cart line-item id — what silpo_update_cart_products and
+      // silpo_remove_cart_products need.
+      products?: Array<{ id?: string; productId: string; companyId: string; [key: string]: unknown }>;
       [key: string]: unknown;
     }>;
     calculation: {
@@ -165,34 +167,88 @@ export interface CartProductInput {
   companyId: string;
   branchId: string;
   quantity: number;
-  addQuantity?: boolean;
   comment?: string;
 }
 
+/**
+ * Sets each product's cart quantity to exactly `quantity` — never adds to it.
+ *
+ * Silpo split silpo_add_or_update_cart_products into two tools:
+ * silpo_add_cart_products (new products only — fails if the productId is
+ * already in the cart) and silpo_update_cart_products (quantity is the new
+ * absolute total, keyed by the cart line-item id, NOT productId). So this
+ * reads the cart first and routes each product: already there -> update with
+ * its line id, otherwise -> add. Both paths are "set", same as the old
+ * addQuantity:false behavior callers relied on.
+ */
 export async function addOrUpdateCartProducts(
   sessionId: string,
   shoppingCartId: string,
   products: CartProductInput[],
-): Promise<unknown> {
+): Promise<void> {
   if (products.length === 0) throw new Error('products must be a non-empty array');
-  // silpo_add_or_update_cart_products defaults addQuantity to true server-side
-  // (undocumented in the tool schema, confirmed via Silpo's Discord) — a repeat
-  // call for a product already in the cart would silently add to its existing
-  // quantity instead of setting it. Force false here unless a caller opts in,
-  // so every call site gets "set quantity" semantics without having to know
-  // about this undocumented default.
-  return callMcpTool(sessionId, 'silpo_add_or_update_cart_products', {
-    shoppingCartId,
-    products: products.map((p) => ({ addQuantity: false, ...p })),
-  });
+
+  const lineIdByProductId = await getCartLineIds(sessionId, shoppingCartId);
+
+  const toUpdate: Array<{ id: string; quantity: number; comment?: string }> = [];
+  const toAdd: CartProductInput[] = [];
+  for (const p of products) {
+    const comment = p.comment ? { comment: p.comment } : {};
+    if (!lineIdByProductId.has(p.productId)) {
+      // Explicit fields only — callers may still send legacy extras like
+      // addQuantity, which the new tool's schema doesn't know.
+      toAdd.push({ productId: p.productId, companyId: p.companyId, branchId: p.branchId, quantity: p.quantity, ...comment });
+      continue;
+    }
+    const id = lineIdByProductId.get(p.productId);
+    if (!id) {
+      throw new Error(`Cart line for product ${p.productId} has no line-item id — cannot update its quantity`);
+    }
+    toUpdate.push({ id, quantity: p.quantity, ...comment });
+  }
+
+  if (toUpdate.length > 0) {
+    await callMcpTool(sessionId, 'silpo_update_cart_products', { shoppingCartId, products: toUpdate });
+  }
+  if (toAdd.length > 0) {
+    await callMcpTool(sessionId, 'silpo_add_cart_products', { shoppingCartId, products: toAdd });
+  }
 }
 
-export async function removeCartProducts(sessionId: string, shoppingCartId: string, productIds: string[]): Promise<unknown> {
+/**
+ * Removes products from the cart by productId. silpo_remove_cart_products
+ * takes the cart line-item id, NOT productId, so this resolves ids from the
+ * live cart first. A productId that's no longer in the cart is skipped, not
+ * an error — the goal ("not in the cart") already holds, and that keeps
+ * retries after an interrupted replace idempotent.
+ */
+export async function removeCartProducts(sessionId: string, shoppingCartId: string, productIds: string[]): Promise<void> {
   if (productIds.length === 0) throw new Error('productIds must be a non-empty array');
-  return callMcpTool(sessionId, 'silpo_remove_cart_products', {
-    shoppingCartId,
-    products: productIds.map((productId) => ({ productId })),
-  });
+
+  const lineIdByProductId = await getCartLineIds(sessionId, shoppingCartId);
+
+  const ids: string[] = [];
+  for (const productId of productIds) {
+    if (!lineIdByProductId.has(productId)) continue;
+    const id = lineIdByProductId.get(productId);
+    if (!id) throw new Error(`Cart line for product ${productId} has no line-item id — cannot remove it`);
+    ids.push(id);
+  }
+
+  if (ids.length > 0) {
+    await callMcpTool(sessionId, 'silpo_remove_cart_products', { shoppingCartId, products: ids.map((id) => ({ id })) });
+  }
+}
+
+// productId -> cart line-item id (undefined if the line came back without
+// one). Every per-line cart tool (update, remove) is keyed by the line id.
+async function getCartLineIds(sessionId: string, shoppingCartId: string): Promise<Map<string, string | undefined>> {
+  const { cart } = await getShoppingCartById(sessionId, shoppingCartId);
+  const lineIdByProductId = new Map<string, string | undefined>();
+  for (const shipment of cart.shipments) {
+    for (const line of shipment.products ?? []) lineIdByProductId.set(line.productId, line.id);
+  }
+  return lineIdByProductId;
 }
 
 export async function clearShoppingCart(sessionId: string, shoppingCartId: string): Promise<unknown> {

@@ -177,7 +177,6 @@ async function runDecision(
             companyId: decision.picked.companyId,
             branchId: decision.picked.branchId,
             quantity: decision.item.quantity,
-            addQuantity: false,
           },
         ]),
       );
