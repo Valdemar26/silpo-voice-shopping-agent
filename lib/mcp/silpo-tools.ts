@@ -208,7 +208,9 @@ export interface ResolvedAddress {
   address: string;
   city: string;
   street: string;
-  houseNumber: string;
+  // null means the geocoder matched the street/area but could NOT confirm
+  // this house number exists (per the silpo_find_address tool description).
+  houseNumber: string | null;
   district?: string;
   latitude: number;
   longitude: number;
@@ -321,9 +323,70 @@ export async function verifyBranchIsHealthy(
 
 export class AddressAmbiguousError extends Error {
   constructor(public readonly candidates: ResolvedAddress[]) {
-    super(`find_address returned ${candidates.length} candidates — refusing to guess which one is intended`);
+    // Candidates go into the message itself — the control-plane journal only
+    // keeps e.message (lib/control-plane/execute.ts), not this.candidates.
+    const listed = candidates.map((c) => `"${c.address}" (${c.latitude}, ${c.longitude})`).join('; ');
+    super(
+      `find_address returned ${candidates.length} candidates — refusing to guess which one is intended` +
+        (listed ? `: ${listed}` : ''),
+    );
     this.name = 'AddressAmbiguousError';
   }
+}
+
+export class AddressHouseNotConfirmedError extends Error {
+  constructor(public readonly candidate: ResolvedAddress) {
+    super(
+      `find_address matched "${candidate.address}" but could not confirm the house number (houseNumber: null) — ` +
+        'not treating it as a deliverable address. Check the house number and try again.',
+    );
+    this.name = 'AddressHouseNotConfirmedError';
+  }
+}
+
+// find_address can return the building itself plus a venue inside it as
+// separate entries ("..., 8-Є" and "..., 8-Є, Food market", ~13 m apart) —
+// same city/street/house within this distance is treated as one building.
+const SAME_BUILDING_MAX_DISTANCE_M = 100;
+
+function distanceMeters(a: ResolvedAddress, b: ResolvedAddress): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLon = toRad(b.longitude - a.longitude);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.latitude)) * Math.cos(toRad(b.latitude)) * Math.sin(dLon / 2) ** 2;
+  return 2 * 6_371_000 * Math.asin(Math.sqrt(h));
+}
+
+function isSameBuilding(a: ResolvedAddress, b: ResolvedAddress): boolean {
+  return (
+    normalizeAddressPart(a.city) === normalizeAddressPart(b.city) &&
+    normalizeAddressPart(a.street) === normalizeAddressPart(b.street) &&
+    normalizeAddressPart(a.houseNumber) === normalizeAddressPart(b.houseNumber) &&
+    distanceMeters(a, b) <= SAME_BUILDING_MAX_DISTANCE_M
+  );
+}
+
+/**
+ * Picks the single address find_address meant, or throws. Several candidates
+ * are only accepted when they're all the same building (see
+ * SAME_BUILDING_MAX_DISTANCE_M) — then the plain building entry (address
+ * text ending in the house number, no venue suffix) wins. Anything else,
+ * including different houses like "8" vs "8-Є", stays AddressAmbiguousError.
+ * A candidate with an unconfirmed house number is never accepted.
+ */
+export function pickAddressCandidate(candidates: ResolvedAddress[]): ResolvedAddress & { houseNumber: string } {
+  const [first, ...rest] = candidates;
+  if (!first || !rest.every((c) => isSameBuilding(first, c))) {
+    throw new AddressAmbiguousError(candidates);
+  }
+
+  const picked =
+    candidates.find((c) => normalizeAddressPart(c.address).endsWith(normalizeAddressPart(c.houseNumber))) ?? first;
+
+  if (picked.houseNumber === null) {
+    throw new AddressHouseNotConfirmedError(picked);
+  }
+  return { ...picked, houseNumber: picked.houseNumber };
 }
 
 export class NoDeliveryOptionError extends Error {
@@ -553,14 +616,12 @@ export async function setupCartForAddress(
   const trace: CartSetupTraceEntry[] = [];
 
   const candidates = await findAddress(sessionId, addressQuery);
-  if (candidates.length !== 1) {
-    trace.push({ step: 'find_address', detail: `${candidates.length} candidates for "${addressQuery}" — ambiguous` });
-    throw new AddressAmbiguousError(candidates);
-  }
-  const resolved = candidates[0];
+  const resolved = pickAddressCandidate(candidates);
   trace.push({
     step: 'find_address',
-    detail: `${resolved.address} (${resolved.latitude}, ${resolved.longitude})`,
+    detail:
+      `${resolved.address} (${resolved.latitude}, ${resolved.longitude})` +
+      (candidates.length > 1 ? ` — ${candidates.length} candidates collapsed as the same building` : ''),
   });
 
   const options = await getAvailableDeliveryTypes(sessionId, resolved.latitude, resolved.longitude);

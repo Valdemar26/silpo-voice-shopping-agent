@@ -3,6 +3,7 @@ export const config = { runtime: 'edge' };
 import { errorResponse, json } from '../../../lib/mcp/http';
 import {
   AddressAmbiguousError,
+  AddressHouseNotConfirmedError,
   CartAddressMismatchError,
   DeadBranchError,
   NoDeliveryOptionError,
@@ -46,6 +47,12 @@ export default async function handler(req: Request): Promise<Response> {
   } catch (e) {
     if (e instanceof AddressAmbiguousError) {
       return withSessionCookie(json({ error: e.message, code: 'address_ambiguous', candidates: e.candidates }, 409), session);
+    }
+    if (e instanceof AddressHouseNotConfirmedError) {
+      return withSessionCookie(
+        json({ error: e.message, code: 'address_house_not_confirmed', candidate: e.candidate }, 422),
+        session,
+      );
     }
     if (e instanceof NoDeliveryOptionError) {
       return withSessionCookie(json({ error: e.message, code: 'no_delivery_option', options: e.options }, 422), session);
